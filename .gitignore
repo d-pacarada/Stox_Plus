@@ -1,0 +1,11 @@
+# Flutter
+stox_plus/.dart_tool/
+stox_plus/build/
+stox_plus/.flutter-plugins
+
+# .NET
+StoxPlus.Api/bin/
+StoxPlus.Api/obj/
+
+# VS Code
+.vscode/

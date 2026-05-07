@@ -34,3 +34,4 @@ C:\Users\donar\OneDrive\Desktop\Stox+\StoxPlus.Api\obj\Debug\net10.0\ref\StoxPlu
 C:\Users\donar\OneDrive\Desktop\Stox+\StoxPlus.Api\bin\Debug\net10.0\Swashbuckle.AspNetCore.Swagger.dll
 C:\Users\donar\OneDrive\Desktop\Stox+\StoxPlus.Api\bin\Debug\net10.0\Swashbuckle.AspNetCore.SwaggerGen.dll
 C:\Users\donar\OneDrive\Desktop\Stox+\StoxPlus.Api\bin\Debug\net10.0\Swashbuckle.AspNetCore.SwaggerUI.dll
+C:\Users\donar\OneDrive\Desktop\Stox+\StoxPlus.Api\obj\Debug\net10.0\StoxPlus.Api.sourcelink.json
