@@ -1,24 +1,3 @@
-// ══════════════════════════════════════════════════════
-// pubspec.yaml  — add these dependencies
-// ══════════════════════════════════════════════════════
-/*
-dependencies:
-  flutter:
-    sdk: flutter
-  http: ^1.2.0
-  shared_preferences: ^2.3.0
-  flutter_svg: ^2.0.10+1
-
-flutter:
-  assets:
-    - assets/images/
-*/
-
-
-// ══════════════════════════════════════════════════════
-// main.dart  →  lib/main.dart
-// ══════════════════════════════════════════════════════
-
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'screens/welcome_screen.dart';
@@ -28,12 +7,14 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final prefs = await SharedPreferences.getInstance();
   final token = prefs.getString('token');
-  runApp(MyApp(isLoggedIn: token != null));
+  final role = prefs.getString('role') ?? 'User';
+  runApp(MyApp(isLoggedIn: token != null, role: role));
 }
 
 class MyApp extends StatelessWidget {
   final bool isLoggedIn;
-  const MyApp({super.key, required this.isLoggedIn});
+  final String role;
+  const MyApp({super.key, required this.isLoggedIn, required this.role});
 
   @override
   Widget build(BuildContext context) {
@@ -44,7 +25,9 @@ class MyApp extends StatelessWidget {
         fontFamily: 'Roboto',
         scaffoldBackgroundColor: const Color(0xFFEAF6FD),
       ),
-      home: isLoggedIn ? const HomeScreen() : const WelcomeScreen(),
+      home: isLoggedIn
+          ? HomeScreen(role: role)
+          : const WelcomeScreen(),
     );
   }
 }

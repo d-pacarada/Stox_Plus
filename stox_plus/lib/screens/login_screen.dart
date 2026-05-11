@@ -45,8 +45,8 @@ class _LoginScreenState extends State<LoginScreen> {
 
     if (result['success']) {
       Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const HomeScreen()),
+      context,
+      MaterialPageRoute(builder: (_) => HomeScreen(role: result['role'] ?? 'User')),
       );
     } else {
       setState(() => _errorMessage = result['message']);

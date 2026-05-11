@@ -1,9 +1,10 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../config/api_config.dart';
 
 class AuthService {
-  static const String baseUrl = 'http://10.0.2.2:5115/api';
+  static const String baseUrl = ApiConfig.baseUrl;
 
   // ─── Register ───────────────────────────────────────────────
   static Future<Map<String, dynamic>> register({
@@ -32,11 +33,10 @@ class AuthService {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        await _saveTokens(data['token'], data['refreshToken']);
+        await _saveTokens(data['token'], data['refreshToken'], data['role']);
         return {'success': true, 'role': data['role']};
       }
 
-      // Handle plain text or JSON error
       String message = _parseError(response.body);
       return {'success': false, 'message': message};
     } catch (e) {
@@ -58,7 +58,7 @@ class AuthService {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        await _saveTokens(data['token'], data['refreshToken']);
+        await _saveTokens(data['token'], data['refreshToken'], data['role']);
         return {'success': true, 'role': data['role']};
       }
 
@@ -87,31 +87,36 @@ class AuthService {
 
       await prefs.remove('token');
       await prefs.remove('refreshToken');
+      await prefs.remove('role');
     } catch (_) {}
   }
 
   // ─── Helpers ────────────────────────────────────────────────
   static String _parseError(String body) {
     try {
-      // Try JSON first
       final data = jsonDecode(body);
       if (data is Map) return data['message'] ?? data.toString();
       return data.toString();
     } catch (_) {
-      // Plain text response — strip surrounding quotes if any
       return body.replaceAll('"', '').trim();
     }
   }
 
-  static Future<void> _saveTokens(String token, String refreshToken) async {
+  static Future<void> _saveTokens(String token, String refreshToken, String role) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('token', token);
     await prefs.setString('refreshToken', refreshToken);
+    await prefs.setString('role', role); // ← saves role
   }
 
   static Future<String?> getToken() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString('token');
+  }
+
+  static Future<String> getRole() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('role') ?? 'User';
   }
 
   static Future<bool> isLoggedIn() async {

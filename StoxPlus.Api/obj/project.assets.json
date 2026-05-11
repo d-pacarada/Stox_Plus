@@ -3404,19 +3404,19 @@
     ]
   },
   "packageFolders": {
-    "C:\\Users\\38349\\.nuget\\packages\\": {}
+    "C:\\Users\\donar\\.nuget\\packages\\": {}
   },
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "C:\\Users\\38349\\Desktop\\Stox_Plus\\StoxPlus.Api\\StoxPlus.Api.csproj",
+      "projectUniqueName": "C:\\Users\\donar\\OneDrive\\Desktop\\Stox+\\StoxPlus.Api\\StoxPlus.Api.csproj",
       "projectName": "StoxPlus.Api",
-      "projectPath": "C:\\Users\\38349\\Desktop\\Stox_Plus\\StoxPlus.Api\\StoxPlus.Api.csproj",
-      "packagesPath": "C:\\Users\\38349\\.nuget\\packages\\",
-      "outputPath": "C:\\Users\\38349\\Desktop\\Stox_Plus\\StoxPlus.Api\\obj\\",
+      "projectPath": "C:\\Users\\donar\\OneDrive\\Desktop\\Stox+\\StoxPlus.Api\\StoxPlus.Api.csproj",
+      "packagesPath": "C:\\Users\\donar\\.nuget\\packages\\",
+      "outputPath": "C:\\Users\\donar\\OneDrive\\Desktop\\Stox+\\StoxPlus.Api\\obj\\",
       "projectStyle": "PackageReference",
       "configFilePaths": [
-        "C:\\Users\\38349\\AppData\\Roaming\\NuGet\\NuGet.Config"
+        "C:\\Users\\donar\\AppData\\Roaming\\NuGet\\NuGet.Config"
       ],
       "originalTargetFrameworks": [
         "net8.0"
@@ -3501,19 +3501,19 @@
         "downloadDependencies": [
           {
             "name": "Microsoft.AspNetCore.App.Ref",
-            "version": "[8.0.21, 8.0.21]"
+            "version": "[8.0.23, 8.0.23]"
           },
           {
             "name": "Microsoft.NETCore.App.Host.win-x64",
-            "version": "[8.0.21, 8.0.21]"
+            "version": "[8.0.23, 8.0.23]"
           },
           {
             "name": "Microsoft.NETCore.App.Ref",
-            "version": "[8.0.21, 8.0.21]"
+            "version": "[8.0.23, 8.0.23]"
           },
           {
             "name": "Microsoft.WindowsDesktop.App.Ref",
-            "version": "[8.0.21, 8.0.21]"
+            "version": "[8.0.23, 8.0.23]"
           }
         ],
         "frameworkReferences": {
@@ -3524,7 +3524,7 @@
             "privateAssets": "all"
           }
         },
-        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.100-rc.2.25502.107/PortableRuntimeIdentifierGraph.json"
+        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.102/PortableRuntimeIdentifierGraph.json"
       }
     }
   },
