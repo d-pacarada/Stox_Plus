@@ -269,11 +269,11 @@ class _LoginScreenState extends State<LoginScreen> {
                   const SizedBox(height: 28),
 
                   // Or With divider
-                  Row(
+                  const Row(
                     children: [
-                      const Expanded(
+                      Expanded(
                           child: Divider(color: Color(0xFF9BB5C8))),
-                      const Padding(
+                      Padding(
                         padding: EdgeInsets.symmetric(horizontal: 14),
                         child: Text(
                           'Or With',
@@ -283,7 +283,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                         ),
                       ),
-                      const Expanded(
+                      Expanded(
                           child: Divider(color: Color(0xFF9BB5C8))),
                     ],
                   ),

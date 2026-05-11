@@ -279,8 +279,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     obscure: _obscureConfirm,
                     validator: (v) {
                       if (v!.isEmpty) return 'Required';
-                      if (v != _passwordController.text)
+                      if (v != _passwordController.text) {
                         return 'Passwords do not match';
+                      }
                       return null;
                     },
                     suffix: IconButton(
