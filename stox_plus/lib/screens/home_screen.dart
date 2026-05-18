@@ -3,6 +3,18 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../widgets/user_navbar.dart';
 import '../widgets/admin_navbar.dart';
 import 'login_screen.dart';
+import 'customers_page.dart'; 
+import 'products_page.dart';
+import 'sales_page.dart';
+import 'purchase_page.dart';
+import 'incomes_page.dart';
+import 'contact_page.dart';
+import 'settings_page.dart';
+import 'users_page.dart';
+import 'messages_page.dart';
+import 'admin_panel_page.dart';
+
+
 
 class HomeScreen extends StatefulWidget {
   final String role;
@@ -16,11 +28,32 @@ class _HomeScreenState extends State<HomeScreen> {
   int _currentIndex = 0;
   bool get isAdmin => widget.role == 'Admin';
 
-  void _onNavTap(int index) {
+void _onNavTap(int index) {
+    // 1. Eğer alt bardan Products (index 1) tıklandıysa
+    if (index == 1) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const ProductsPage()),
+      );
+      return; // Aşağıdaki setState'e girmesini engeller
+    }
+    
+    // 2. Eğer alt bardan Sales (index 2) tıklandıysa
+    if (index == 2) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const SalesPage()),
+      );
+      return; // Aşağıdaki setState'e girmesini engeller
+    }
+
+    // 3. Eğer alt bardan More (index 3) tıklandıysa menüyü aç
     if (index == 3) {
       _showMoreDrawer();
       return;
     }
+    
+    // Sadece Overview (index 0) tıklandığında ekran indexini güncelle
     setState(() => _currentIndex = index);
   }
 
@@ -58,20 +91,44 @@ class _HomeScreenState extends State<HomeScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
-              _moreItem(Icons.people_alt_outlined, 'Customers', () {}),
-              _moreItem(Icons.add_box_outlined, 'Purchase', () {}),
-              _moreItem(Icons.trending_up_rounded, 'Incomes', () {}),
-            ],
-          ),
+             _moreItem(Icons.people_alt_outlined, 'Customers', () {
+              Navigator.pop(context); // Önce alttan açılan menüyü kapatır
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const CustomersPage()), // Sonra Customers sayfasına gider
+              );
+            }),
+            _moreItem(Icons.add_box_outlined, 'Purchase', () {
+      Navigator.pop(context);
+      Navigator.push(context, MaterialPageRoute(builder: (context) => const PurchasePage()));
+    }),
+    
+    // YENİ INCOMES YÖNLENDİRMESİ
+    _moreItem(Icons.trending_up_rounded, 'Incomes', () {
+      Navigator.pop(context);
+      Navigator.push(context, MaterialPageRoute(builder: (context) => const IncomesPage()));
+    }),
+  ],
+),
           const SizedBox(height: 20),
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _moreItem(Icons.mail_outline_rounded, 'Contact Us', () {}),
-              _moreItem(Icons.settings_outlined, 'Settings', () {}),
-              _moreItem(Icons.logout_rounded, 'Logout', _logout),
-            ],
-          ),
+  mainAxisAlignment: MainAxisAlignment.spaceAround,
+  children: [
+    // CONTACT US
+    _moreItem(Icons.mail_outline_rounded, 'Contact Us', () {
+      Navigator.pop(context); // Menüyü kapat
+      Navigator.push(context, MaterialPageRoute(builder: (context) => const ContactPage())); // Sayfaya git
+    }),
+    
+    // SETTINGS
+    _moreItem(Icons.settings_outlined, 'Settings', () {
+      Navigator.pop(context); // Menüyü kapat
+      Navigator.push(context, MaterialPageRoute(builder: (context) => const SettingsPage())); // Sayfaya git
+    }),
+    
+    _moreItem(Icons.logout_rounded, 'Logout', _logout),
+  ],
+),
           const SizedBox(height: 16),
         ],
       ),
@@ -80,42 +137,83 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _adminMoreSheet() {
     return Padding(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
       child: Column(
-        mainAxisSize: MainAxisSize.min,
+        mainAxisSize: MainAxisSize.min, // Sadece içeriği kadar yer kaplasın
         children: [
           _sheetHandle(),
-          const SizedBox(height: 24),
-          const Text('Admin',
-              style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF1B2D4F))),
-          const SizedBox(height: 20),
-          _moreItem(Icons.admin_panel_settings_outlined, 'Admin Panel', () {}),
-          const SizedBox(height: 20),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _moreItem(Icons.people_alt_outlined, 'Customers', () {}),
-              _moreItem(Icons.add_box_outlined, 'Purchase', () {}),
-              _moreItem(Icons.trending_up_rounded, 'Incomes', () {}),
-            ],
-          ),
-          const SizedBox(height: 20),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _moreItem(Icons.mail_outline_rounded, 'Contact Us', () {}),
-              _moreItem(Icons.settings_outlined, 'Settings', () {}),
-              _moreItem(Icons.logout_rounded, 'Logout', _logout),
-            ],
+          const SizedBox(height: 16),
+          const Text(
+            'Admin',
+            style: TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF1B2D4F),
+            ),
           ),
           const SizedBox(height: 16),
+          
+          // 3x3 Matris Düzeni
+          Flexible(
+            child: GridView.count(
+              shrinkWrap: true, // GridView'un sonsuz yüksekliğe ulaşıp patlamasını engeller
+              physics: const NeverScrollableScrollPhysics(), // İçeride ekstra kaydırmayı kapatır
+              crossAxisCount: 3, // Yan yana tam 3 adet buton olacak
+              crossAxisSpacing: 12, // Butonların yatay arası boşluk
+              mainAxisSpacing: 16,  // Butonların dikey arası boşluk
+              childAspectRatio: 0.95, // Butonların genişlik/yükseklik oranı (Kareye yakın)
+              children: [
+                // 1. Satır
+                // home_screen.dart içindeki _adminMoreSheet fonksiyonunun ilk butonunu şu şekilde güncelle:
+
+                _moreItem(Icons.admin_panel_settings_outlined, 'Admin Panel', () {
+                 Navigator.pop(context); // Önce alt menüyü (BottomSheet) kapat
+                Navigator.push(
+                context, 
+                MaterialPageRoute(builder: (context) => const AdminPanelPage()) // Sayfaya git
+                );
+                }),
+                _moreItem(Icons.people_alt_outlined, 'Customers', () {
+                  Navigator.pop(context);
+                  Navigator.push(context, MaterialPageRoute(builder: (context) => const CustomersPage()));
+                }),
+                _moreItem(Icons.supervised_user_circle_outlined, 'Users', () {
+                  Navigator.pop(context);
+                  Navigator.push(context, MaterialPageRoute(builder: (context) => const UsersPage()));
+                }),
+
+                // 2. Satır
+                _moreItem(Icons.chat_bubble_outline_rounded, 'Messages', () {
+                  Navigator.pop(context);
+                  Navigator.push(context, MaterialPageRoute(builder: (context) => const MessagesPage()));
+                }),
+                _moreItem(Icons.add_box_outlined, 'Purchase', () {
+                  Navigator.pop(context);
+                  Navigator.push(context, MaterialPageRoute(builder: (context) => const PurchasePage()));
+                }),
+                _moreItem(Icons.trending_up_rounded, 'Incomes', () {
+                  Navigator.pop(context);
+                  Navigator.push(context, MaterialPageRoute(builder: (context) => const IncomesPage()));
+                }),
+
+                // 3. Satır
+                _moreItem(Icons.mail_outline_rounded, 'Contact Us', () {
+                  Navigator.pop(context);
+                  Navigator.push(context, MaterialPageRoute(builder: (context) => const ContactPage()));
+                }),
+                _moreItem(Icons.settings_outlined, 'Settings', () {
+                  Navigator.pop(context);
+                  Navigator.push(context, MaterialPageRoute(builder: (context) => const SettingsPage()));
+                }),
+                _moreItem(Icons.logout_rounded, 'Logout', _logout),
+              ],
+            ),
+          ),
         ],
       ),
     );
   }
+
 
   Widget _sheetHandle() {
     return Container(

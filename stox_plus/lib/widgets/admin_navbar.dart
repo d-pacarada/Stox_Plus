@@ -36,9 +36,15 @@ class AdminNavBar extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
                 children: [
                   _navItem(0, Icons.bar_chart_rounded, 'Overview'),
-                  _navItem(1, Icons.people_alt_outlined, 'Users'),
+                  
+                  // Eskiden 'Users' olan yer artık 'Products'
+                  _navItem(1, Icons.crop_original_rounded, 'Products'), 
+                  
                   const SizedBox(width: 64), // space for camera
-                  _navItem(2, Icons.message_outlined, 'Messages'),
+                  
+                  // Eskiden 'Messages' olan yer artık 'Sales'
+                  _navItem(2, Icons.shopping_cart_outlined, 'Sales'),
+                  
                   _navItem(3, Icons.menu_rounded, 'More'),
                 ],
               ),
