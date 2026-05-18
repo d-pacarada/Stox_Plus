@@ -93,10 +93,13 @@ void _onNavTap(int index) {
             children: [
              _moreItem(Icons.people_alt_outlined, 'Customers', () {
               Navigator.pop(context); // Önce alttan açılan menüyü kapatır
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const CustomersPage()), // Sonra Customers sayfasına gider
-              );
+              // home_screen.dart içinde CustomersPage yönlendirmelerini tam olarak böyle yap:
+Navigator.push(
+  context,
+  MaterialPageRoute(
+    builder: (context) => CustomersPage(role: widget.role), // <-- widget.role değerini gönderiyoruz!
+  ),
+);
             }),
             _moreItem(Icons.add_box_outlined, 'Purchase', () {
       Navigator.pop(context);
@@ -175,7 +178,7 @@ void _onNavTap(int index) {
                 }),
                 _moreItem(Icons.people_alt_outlined, 'Customers', () {
                   Navigator.pop(context);
-                  Navigator.push(context, MaterialPageRoute(builder: (context) => const CustomersPage()));
+                  Navigator.push(context, MaterialPageRoute(builder: (context) => CustomersPage(role: widget.role),));
                 }),
                 _moreItem(Icons.supervised_user_circle_outlined, 'Users', () {
                   Navigator.pop(context);

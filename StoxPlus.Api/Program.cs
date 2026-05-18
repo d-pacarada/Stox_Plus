@@ -6,6 +6,9 @@ using QuestPDF.Infrastructure;
 using Server.Data;
 
 var builder = WebApplication.CreateBuilder(args);
+// Hem localhost'u hem de emülatörü (0.0.0.0) aynı anda 5001 portundan dinletiyoruz
+// Uygulamayı hem localhost hem de tüm ağ kartları için 5115 portuna kilitler
+builder.WebHost.UseUrls("http://localhost:5115", "http://0.0.0.0:5115");
 
 // QuestPDF license
 QuestPDF.Settings.License = LicenseType.Community;
