@@ -31,12 +31,12 @@ class _HomeScreenState extends State<HomeScreen> {
 void _onNavTap(int index) {
     // 1. Eğer alt bardan Products (index 1) tıklandıysa
     if (index == 1) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (context) => const ProductsPage()),
-      );
-      return; // Aşağıdaki setState'e girmesini engeller
-    }
+  Navigator.push(
+    context,
+    MaterialPageRoute(builder: (context) => ProductsPage(role: widget.role)),
+  );
+  return;
+}
     
     // 2. Eğer alt bardan Sales (index 2) tıklandıysa
     if (index == 2) {
