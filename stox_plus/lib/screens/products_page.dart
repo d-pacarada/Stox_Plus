@@ -43,6 +43,12 @@ class _ProductsPageState extends State<ProductsPage> {
   final TextEditingController _searchController = TextEditingController();
   bool get isAdmin => widget.role == 'Admin';
 
+  // 🔥 ID haritası: Product_ID → kullanıcıya gösterilen sıra numarası
+  // SharedPreferences'ta kalıcı tutuluyor (uygulama kapansa da hatırlar)
+  Map<int, int> _idMap = {};
+  static const String _idMapKey = 'product_id_map';
+  static const String _idCounterKey = 'product_id_counter';
+
   @override
   void initState() {
     super.initState();
@@ -50,7 +56,64 @@ class _ProductsPageState extends State<ProductsPage> {
   }
 
   // -------------------------------------------------------------
-  // Fetch products
+  // ID Map yükle/kaydet
+  // -------------------------------------------------------------
+  Future<Map<int, int>> _loadIdMap() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_idMapKey);
+    if (raw == null || raw.isEmpty) return {};
+    try {
+      final Map<String, dynamic> decoded = jsonDecode(raw);
+      return decoded.map((k, v) => MapEntry(int.parse(k), v as int));
+    } catch (_) {
+      return {};
+    }
+  }
+
+  Future<void> _saveIdMap(Map<int, int> map) async {
+    final prefs = await SharedPreferences.getInstance();
+    final encodable = map.map((k, v) => MapEntry(k.toString(), v));
+    await prefs.setString(_idMapKey, jsonEncode(encodable));
+  }
+
+  Future<int> _getNextCounter() async {
+    final prefs = await SharedPreferences.getInstance();
+    final current = prefs.getInt(_idCounterKey) ?? 0;
+    final next = current + 1;
+    await prefs.setInt(_idCounterKey, next);
+    return next;
+  }
+
+  // Backend'den gelen ürünlere displayId atar.
+  // - Daha önce gördüğü ürünse: kayıtlı numarayı verir
+  // - Yeni ürünse: counter'ı arttırıp yeni numara verir
+  // Silinenleri SİLMEZ haritadan — o yüzden sıra "delik" kalır, geri kaydırılmaz.
+  Future<void> _assignDisplayIds(List<dynamic> products) async {
+    _idMap = await _loadIdMap();
+    bool changed = false;
+
+    for (final p in products) {
+      final int pid =
+          (p['product_ID'] ?? p['Product_ID'] ?? 0) as int;
+      if (pid == 0) continue;
+
+      if (_idMap.containsKey(pid)) {
+        // Daha önce görüldü → eski numarayı koru
+        p['displayId'] = _idMap[pid];
+      } else {
+        // Yeni ürün → yeni numara ver
+        final newId = await _getNextCounter();
+        _idMap[pid] = newId;
+        p['displayId'] = newId;
+        changed = true;
+      }
+    }
+
+    if (changed) await _saveIdMap(_idMap);
+  }
+
+  // -------------------------------------------------------------
+  // Fetch
   // -------------------------------------------------------------
   Future<void> _fetchUserProducts() async {
     setState(() => _isLoading = true);
@@ -75,9 +138,8 @@ class _ProductsPageState extends State<ProductsPage> {
       if (response.statusCode == 200) {
         final List<dynamic> fetched = jsonDecode(response.body);
 
-        for (int i = 0; i < fetched.length; i++) {
-          fetched[i]['localId'] = i + 1;
-        }
+        // 🔥 Her ürüne kalıcı displayId ata (yeni eklenenlere yeni numara)
+        await _assignDisplayIds(fetched);
 
         setState(() {
           _allProducts = fetched;
@@ -98,7 +160,7 @@ class _ProductsPageState extends State<ProductsPage> {
   }
 
   // -------------------------------------------------------------
-  // Delete product (soft delete)
+  // Delete (soft delete). HARİTAYA DOKUNMA — sıranın "boş kalması" buradan geliyor.
   // -------------------------------------------------------------
   Future<void> _deleteProduct(dynamic product) async {
     final dbId =
@@ -120,6 +182,7 @@ class _ProductsPageState extends State<ProductsPage> {
 
       if (response.statusCode == 200 || response.statusCode == 204) {
         _showSnackBar('Product successfully deleted.', isSuccess: true);
+        // _idMap'ten silmiyoruz! Sıralama deliği kalmalı.
         _fetchUserProducts();
       } else {
         _showSnackBar('Delete failed.');
@@ -159,8 +222,8 @@ class _ProductsPageState extends State<ProductsPage> {
   void _applySort() {
     setState(() {
       _filteredProducts.sort((a, b) {
-        final int idA = a['localId'] ?? 0;
-        final int idB = b['localId'] ?? 0;
+        final int idA = a['displayId'] ?? 0;
+        final int idB = b['displayId'] ?? 0;
         return _isSortAscending ? idA.compareTo(idB) : idB.compareTo(idA);
       });
     });
@@ -179,16 +242,14 @@ class _ProductsPageState extends State<ProductsPage> {
   // NAVIGATION
   // -------------------------------------------------------------
   void _handleNavTap(int index) {
-    if (index == 1) return; // zaten buradayız (Products)
+    if (index == 1) return;
 
     if (index == 0) {
-      // Overview → Home'a dön
       Navigator.popUntil(context, (route) => route.isFirst);
       return;
     }
 
     if (index == 2) {
-      // Sales → direkt geç
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => const SalesPage()),
@@ -197,7 +258,6 @@ class _ProductsPageState extends State<ProductsPage> {
     }
 
     if (index == 3) {
-      // More → drawer aç
       _showMoreDrawer();
     }
   }
@@ -208,7 +268,7 @@ class _ProductsPageState extends State<ProductsPage> {
   }
 
   // -------------------------------------------------------------
-  // MORE DRAWER (Home ile aynı)
+  // MORE DRAWER
   // -------------------------------------------------------------
   void _showMoreDrawer() {
     showModalBottomSheet(
@@ -459,7 +519,6 @@ class _ProductsPageState extends State<ProductsPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // STOX header
             Padding(
               padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
               child: Column(
@@ -481,8 +540,6 @@ class _ProductsPageState extends State<ProductsPage> {
                 ],
               ),
             ),
-
-            // Search & Sort
             Padding(
               padding:
                   const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
@@ -537,8 +594,6 @@ class _ProductsPageState extends State<ProductsPage> {
                 ],
               ),
             ),
-
-            // Add Product Button
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
               child: SizedBox(
@@ -567,8 +622,6 @@ class _ProductsPageState extends State<ProductsPage> {
               ),
             ),
             const SizedBox(height: 16),
-
-            // List
             Expanded(
               child: _isLoading
                   ? const Center(
@@ -619,7 +672,6 @@ class _ProductsPageState extends State<ProductsPage> {
           ],
         ),
       ),
-
       bottomNavigationBar: isAdmin
           ? AdminNavBar(
               currentIndex: 1,
@@ -663,11 +715,12 @@ class _ProductsPageState extends State<ProductsPage> {
   }
 
   // -------------------------------------------------------------
-  // Product Card
+  // Product Card — "ID: 1 - Name" formatı
   // -------------------------------------------------------------
   Widget _buildProductCard(dynamic product) {
     final int productId =
         product['product_ID'] ?? product['Product_ID'] ?? 0;
+    final int displayId = product['displayId'] ?? 0; // 🔥 kalıcı sıra
     final String name =
         (product['product_Name'] ?? product['Product_Name'] ?? '').toString();
     final String description =
@@ -700,8 +753,9 @@ class _ProductsPageState extends State<ProductsPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // 🔥 ID: 1 - A1+ Compound
             Text(
-              name,
+              'ID: $displayId - $name',
               style: const TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.w800,

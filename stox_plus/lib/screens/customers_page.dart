@@ -41,10 +41,70 @@ class _CustomersPageState extends State<CustomersPage> {
   final TextEditingController _searchController = TextEditingController();
   bool get isAdmin => widget.role == 'Admin';
 
+  // 🔥 Kalıcı ID haritası: Customer_ID → kullanıcıya gösterilen sıra numarası
+  Map<int, int> _idMap = {};
+  static const String _idMapKey = 'customer_id_map';
+  static const String _idCounterKey = 'customer_id_counter';
+
   @override
   void initState() {
     super.initState();
     _fetchUserCustomers();
+  }
+
+  // -------------------------------------------------------------
+  // ID Map yükle/kaydet
+  // -------------------------------------------------------------
+  Future<Map<int, int>> _loadIdMap() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_idMapKey);
+    if (raw == null || raw.isEmpty) return {};
+    try {
+      final Map<String, dynamic> decoded = jsonDecode(raw);
+      return decoded.map((k, v) => MapEntry(int.parse(k), v as int));
+    } catch (_) {
+      return {};
+    }
+  }
+
+  Future<void> _saveIdMap(Map<int, int> map) async {
+    final prefs = await SharedPreferences.getInstance();
+    final encodable = map.map((k, v) => MapEntry(k.toString(), v));
+    await prefs.setString(_idMapKey, jsonEncode(encodable));
+  }
+
+  Future<int> _getNextCounter() async {
+    final prefs = await SharedPreferences.getInstance();
+    final current = prefs.getInt(_idCounterKey) ?? 0;
+    final next = current + 1;
+    await prefs.setInt(_idCounterKey, next);
+    return next;
+  }
+
+  // Backend'den gelen customer'lara displayId atar.
+  // - Daha önce gördüğü customer'sa: kayıtlı numarayı verir
+  // - Yeni customer'sa: counter'ı arttırıp yeni numara verir
+  // Silinenleri haritadan KALDIRMAZ — sıra deliği kalsın diye.
+  Future<void> _assignDisplayIds(List<dynamic> customers) async {
+    _idMap = await _loadIdMap();
+    bool changed = false;
+
+    for (final c in customers) {
+      final int cid =
+          (c['customer_ID'] ?? c['Customer_ID'] ?? 0) as int;
+      if (cid == 0) continue;
+
+      if (_idMap.containsKey(cid)) {
+        c['displayId'] = _idMap[cid];
+      } else {
+        final newId = await _getNextCounter();
+        _idMap[cid] = newId;
+        c['displayId'] = newId;
+        changed = true;
+      }
+    }
+
+    if (changed) await _saveIdMap(_idMap);
   }
 
   // -------------------------------------------------------------
@@ -77,9 +137,8 @@ class _CustomersPageState extends State<CustomersPage> {
                 c['isDeleted'] == false || c['IsDeleted'] == false)
             .toList();
 
-        for (int i = 0; i < activeCustomers.length; i++) {
-          activeCustomers[i]['localId'] = i + 1;
-        }
+        // 🔥 Her customer'a kalıcı displayId ata
+        await _assignDisplayIds(activeCustomers);
 
         setState(() {
           _allCustomers = activeCustomers;
@@ -99,7 +158,7 @@ class _CustomersPageState extends State<CustomersPage> {
   }
 
   // -------------------------------------------------------------
-  // Delete
+  // Delete — haritaya dokunma, deliği koru
   // -------------------------------------------------------------
   Future<void> _deleteCustomer(dynamic customer) async {
     final dbId =
@@ -121,6 +180,7 @@ class _CustomersPageState extends State<CustomersPage> {
 
       if (response.statusCode == 200 || response.statusCode == 204) {
         _showSnackBar('Customer successfully deleted.', isSuccess: true);
+        // _idMap'ten silmiyoruz! O numara "delik" kalmalı.
         _fetchUserCustomers();
       } else {
         _showSnackBar('Delete failed.');
@@ -160,8 +220,8 @@ class _CustomersPageState extends State<CustomersPage> {
   void _applySort() {
     setState(() {
       _filteredCustomers.sort((a, b) {
-        final int idA = a['localId'] ?? 0;
-        final int idB = b['localId'] ?? 0;
+        final int idA = a['displayId'] ?? 0;
+        final int idB = b['displayId'] ?? 0;
         return _isSortAscending ? idA.compareTo(idB) : idB.compareTo(idA);
       });
     });
@@ -177,23 +237,20 @@ class _CustomersPageState extends State<CustomersPage> {
   }
 
   // -------------------------------------------------------------
-  // NAVIGATION (Customer "More" altında, ama Products/Sales/Overview'a direkt geçer)
+  // NAVIGATION
   // -------------------------------------------------------------
   void _handleNavTap(int index) {
     if (index == 3) {
-      // Zaten "More" altındayız → drawer aç
       _showMoreDrawer();
       return;
     }
 
     if (index == 0) {
-      // Overview → Home'a dön
       Navigator.popUntil(context, (route) => route.isFirst);
       return;
     }
 
     if (index == 1) {
-      // Products → direkt geç
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
@@ -203,7 +260,6 @@ class _CustomersPageState extends State<CustomersPage> {
     }
 
     if (index == 2) {
-      // Sales → direkt geç
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => const SalesPage()),
@@ -451,8 +507,13 @@ class _CustomersPageState extends State<CustomersPage> {
     );
   }
 
+  // -------------------------------------------------------------
+  // Customer Card — "ID: 1 - Name" formatı
+  // -------------------------------------------------------------
   Widget _buildCustomerCard(dynamic customer) {
-    final int displayId = customer['localId'] ?? 0;
+    final int displayId = customer['displayId'] ?? 0;
+    final String name =
+        (customer['full_Name'] ?? customer['Full_Name'] ?? '').toString();
 
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
@@ -467,8 +528,9 @@ class _CustomersPageState extends State<CustomersPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // 🔥 ID: 1 - John Doe
             Text(
-              'Customer #$displayId - ${customer['full_Name'] ?? customer['Full_Name']}',
+              'ID: $displayId - $name',
               style: const TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.w800,
@@ -576,7 +638,7 @@ class _CustomersPageState extends State<CustomersPage> {
   }
 
   // -------------------------------------------------------------
-  // MORE DRAWER (Home ile aynı)
+  // MORE DRAWER
   // -------------------------------------------------------------
   void _showMoreDrawer() {
     showModalBottomSheet(
@@ -606,7 +668,7 @@ class _CustomersPageState extends State<CustomersPage> {
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
               _moreItem(Icons.people_alt_outlined, 'Customers', () {
-                Navigator.pop(context); // zaten Customers'tayız, sadece kapat
+                Navigator.pop(context);
               }),
               _moreItem(Icons.add_box_outlined, 'Purchase', () {
                 Navigator.pop(context);
@@ -686,7 +748,7 @@ class _CustomersPageState extends State<CustomersPage> {
                           builder: (context) => const AdminPanelPage()));
                 }),
                 _moreItem(Icons.people_alt_outlined, 'Customers', () {
-                  Navigator.pop(context); // zaten Customers'tayız
+                  Navigator.pop(context);
                 }),
                 _moreItem(Icons.supervised_user_circle_outlined, 'Users',
                     () {
