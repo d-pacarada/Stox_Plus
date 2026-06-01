@@ -35,7 +35,6 @@ class _ProductsPageState extends State<ProductsPage> {
   bool _isSearching = false;
   bool _isSortAscending = true;
 
-  // Read More / Load More
   final Set<int> _expandedDescriptions = {};
   int _visibleCount = 3;
   final int _loadIncrement = 3;
@@ -43,73 +42,143 @@ class _ProductsPageState extends State<ProductsPage> {
   final TextEditingController _searchController = TextEditingController();
   bool get isAdmin => widget.role == 'Admin';
 
-  // 🔥 ID haritası: Product_ID → kullanıcıya gösterilen sıra numarası
-  // SharedPreferences'ta kalıcı tutuluyor (uygulama kapansa da hatırlar)
-  Map<int, int> _idMap = {};
-  static const String _idMapKey = 'product_id_map';
-  static const String _idCounterKey = 'product_id_counter';
+  // ════════════════════════════════════════════════════════════════════
+  // PER-USER LOCAL ID SYSTEM
+  // ────────────────────────────────────────────────────────────────────
+  // Her user için ayrı map: SharedPreferences key'i userId ile suffixed.
+  // Örn: User 5 → 'product_local_id_map_5'
+  // - Yeni product: max(map.values) + 1
+  // - Silinen product: map'ten kaldırılır
+  // ════════════════════════════════════════════════════════════════════
 
-  @override
-  void initState() {
-    super.initState();
-    _fetchUserProducts();
+  Map<int, int> _idMap = {}; // product_ID → localId
+  int? _currentUserId;
+
+  String get _idMapKey => _currentUserId != null
+      ? 'product_local_id_map_$_currentUserId'
+      : 'product_local_id_map_anonymous';
+
+  /// JWT token'ı decode edip içindeki userId claim'ini çıkarır.
+  int? _extractUserIdFromToken(String token) {
+    try {
+      final parts = token.split('.');
+      if (parts.length != 3) return null;
+
+      String payload = parts[1];
+      switch (payload.length % 4) {
+        case 2:
+          payload += '==';
+          break;
+        case 3:
+          payload += '=';
+          break;
+      }
+
+      final decoded = utf8.decode(base64Url.decode(payload));
+      final Map<String, dynamic> claims = jsonDecode(decoded);
+
+      final candidates = [
+        'userId',
+        'user_id',
+        'userid',
+        'UserId',
+        'nameid',
+        'sub',
+        'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier',
+      ];
+
+      for (final key in candidates) {
+        final v = claims[key];
+        if (v == null) continue;
+        if (v is int) return v;
+        if (v is String) {
+          final parsed = int.tryParse(v);
+          if (parsed != null) return parsed;
+        }
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
   }
 
-  // -------------------------------------------------------------
-  // ID Map yükle/kaydet
-  // -------------------------------------------------------------
+  Future<void> _resolveCurrentUserId() async {
+    if (_currentUserId != null) return;
+
+    final prefs = await SharedPreferences.getInstance();
+
+    final stored = prefs.getInt('user_ID') ??
+        prefs.getInt('userId') ??
+        prefs.getInt('userid');
+    if (stored != null) {
+      _currentUserId = stored;
+      return;
+    }
+
+    final token = prefs.getString('token');
+    if (token != null && token.isNotEmpty) {
+      _currentUserId = _extractUserIdFromToken(token);
+    }
+  }
+
   Future<Map<int, int>> _loadIdMap() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_idMapKey);
     if (raw == null || raw.isEmpty) return {};
     try {
-      final Map<String, dynamic> decoded = jsonDecode(raw);
+      final decoded = jsonDecode(raw) as Map<String, dynamic>;
       return decoded.map((k, v) => MapEntry(int.parse(k), v as int));
     } catch (_) {
       return {};
     }
   }
 
-  Future<void> _saveIdMap(Map<int, int> map) async {
+  Future<void> _saveIdMap() async {
     final prefs = await SharedPreferences.getInstance();
-    final encodable = map.map((k, v) => MapEntry(k.toString(), v));
+    final encodable = _idMap.map((k, v) => MapEntry(k.toString(), v));
     await prefs.setString(_idMapKey, jsonEncode(encodable));
   }
 
-  Future<int> _getNextCounter() async {
-    final prefs = await SharedPreferences.getInstance();
-    final current = prefs.getInt(_idCounterKey) ?? 0;
-    final next = current + 1;
-    await prefs.setInt(_idCounterKey, next);
-    return next;
+  int _nextLocalId() {
+    if (_idMap.isEmpty) return 1;
+    final maxId = _idMap.values.reduce((a, b) => a > b ? a : b);
+    return maxId + 1;
   }
 
-  // Backend'den gelen ürünlere displayId atar.
-  // - Daha önce gördüğü ürünse: kayıtlı numarayı verir
-  // - Yeni ürünse: counter'ı arttırıp yeni numara verir
-  // Silinenleri SİLMEZ haritadan — o yüzden sıra "delik" kalır, geri kaydırılmaz.
-  Future<void> _assignDisplayIds(List<dynamic> products) async {
+  Future<void> _assignLocalIds(List<dynamic> products) async {
+    await _resolveCurrentUserId();
     _idMap = await _loadIdMap();
     bool changed = false;
 
     for (final p in products) {
-      final int pid =
+      final int productId =
           (p['product_ID'] ?? p['Product_ID'] ?? 0) as int;
-      if (pid == 0) continue;
+      if (productId == 0) continue;
 
-      if (_idMap.containsKey(pid)) {
-        // Daha önce görüldü → eski numarayı koru
-        p['displayId'] = _idMap[pid];
+      if (_idMap.containsKey(productId)) {
+        p['localId'] = _idMap[productId];
       } else {
-        // Yeni ürün → yeni numara ver
-        final newId = await _getNextCounter();
-        _idMap[pid] = newId;
-        p['displayId'] = newId;
+        final newLocalId = _nextLocalId();
+        _idMap[productId] = newLocalId;
+        p['localId'] = newLocalId;
         changed = true;
       }
     }
 
-    if (changed) await _saveIdMap(_idMap);
+    if (changed) await _saveIdMap();
+  }
+
+  Future<void> _removeFromIdMap(int productId) async {
+    if (_idMap.containsKey(productId)) {
+      _idMap.remove(productId);
+      await _saveIdMap();
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchUserProducts();
   }
 
   // -------------------------------------------------------------
@@ -138,8 +207,8 @@ class _ProductsPageState extends State<ProductsPage> {
       if (response.statusCode == 200) {
         final List<dynamic> fetched = jsonDecode(response.body);
 
-        // 🔥 Her ürüne kalıcı displayId ata (yeni eklenenlere yeni numara)
-        await _assignDisplayIds(fetched);
+        // 🔥 User'a özel localId ata
+        await _assignLocalIds(fetched);
 
         setState(() {
           _allProducts = fetched;
@@ -160,12 +229,12 @@ class _ProductsPageState extends State<ProductsPage> {
   }
 
   // -------------------------------------------------------------
-  // Delete (soft delete). HARİTAYA DOKUNMA — sıranın "boş kalması" buradan geliyor.
+  // Delete
   // -------------------------------------------------------------
   Future<void> _deleteProduct(dynamic product) async {
-    final dbId =
-        product['product_ID'] ?? product['Product_ID'] ?? product['id'];
-    if (dbId == null) return;
+    final int dbId =
+        (product['product_ID'] ?? product['Product_ID'] ?? 0) as int;
+    if (dbId == 0) return;
 
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -181,8 +250,8 @@ class _ProductsPageState extends State<ProductsPage> {
       );
 
       if (response.statusCode == 200 || response.statusCode == 204) {
+        await _removeFromIdMap(dbId);
         _showSnackBar('Product successfully deleted.', isSuccess: true);
-        // _idMap'ten silmiyoruz! Sıralama deliği kalmalı.
         _fetchUserProducts();
       } else {
         _showSnackBar('Delete failed.');
@@ -222,8 +291,8 @@ class _ProductsPageState extends State<ProductsPage> {
   void _applySort() {
     setState(() {
       _filteredProducts.sort((a, b) {
-        final int idA = a['displayId'] ?? 0;
-        final int idB = b['displayId'] ?? 0;
+        final int idA = a['localId'] ?? 0;
+        final int idB = b['localId'] ?? 0;
         return _isSortAscending ? idA.compareTo(idB) : idB.compareTo(idA);
       });
     });
@@ -715,12 +784,12 @@ class _ProductsPageState extends State<ProductsPage> {
   }
 
   // -------------------------------------------------------------
-  // Product Card — "ID: 1 - Name" formatı
+  // Product Card
   // -------------------------------------------------------------
   Widget _buildProductCard(dynamic product) {
     final int productId =
         product['product_ID'] ?? product['Product_ID'] ?? 0;
-    final int displayId = product['displayId'] ?? 0; // 🔥 kalıcı sıra
+    final int displayId = product['localId'] ?? 0;
     final String name =
         (product['product_Name'] ?? product['Product_Name'] ?? '').toString();
     final String description =
@@ -753,7 +822,6 @@ class _ProductsPageState extends State<ProductsPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 🔥 ID: 1 - A1+ Compound
             Text(
               'ID: $displayId - $name',
               style: const TextStyle(

@@ -41,70 +41,151 @@ class _CustomersPageState extends State<CustomersPage> {
   final TextEditingController _searchController = TextEditingController();
   bool get isAdmin => widget.role == 'Admin';
 
-  // 🔥 Kalıcı ID haritası: Customer_ID → kullanıcıya gösterilen sıra numarası
-  Map<int, int> _idMap = {};
-  static const String _idMapKey = 'customer_id_map';
-  static const String _idCounterKey = 'customer_id_counter';
+  // ════════════════════════════════════════════════════════════════════
+  // PER-USER LOCAL ID SYSTEM
+  // ────────────────────────────────────────────────────────────────────
+  // Her user için ayrı map: SharedPreferences key'i userId ile suffixed.
+  // Örn: User 5 → 'customer_local_id_map_5'
+  //      User 12 → 'customer_local_id_map_12'
+  // Bu sayede her user kendi 1, 2, 3... sıralamasını görür.
+  // ════════════════════════════════════════════════════════════════════
 
-  @override
-  void initState() {
-    super.initState();
-    _fetchUserCustomers();
+  Map<int, int> _idMap = {}; // customer_ID → localId
+  int? _currentUserId; // JWT'den çekilen userId
+
+  String get _idMapKey =>
+      _currentUserId != null
+          ? 'customer_local_id_map_$_currentUserId'
+          : 'customer_local_id_map_anonymous';
+
+  /// JWT token'ı decode edip içindeki userId claim'ini çıkarır.
+  /// Backend `User.FindFirst("userId")` ile okuduğu için "userId" key'i var.
+  /// Yedek olarak "nameid", "sub", "user_id" gibi standart claim'leri de denerim.
+  int? _extractUserIdFromToken(String token) {
+    try {
+      final parts = token.split('.');
+      if (parts.length != 3) return null;
+
+      String payload = parts[1];
+      // Base64Url padding
+      switch (payload.length % 4) {
+        case 2:
+          payload += '==';
+          break;
+        case 3:
+          payload += '=';
+          break;
+      }
+
+      final decoded = utf8.decode(base64Url.decode(payload));
+      final Map<String, dynamic> claims = jsonDecode(decoded);
+
+      // Olası claim isimleri
+      final candidates = [
+        'userId',
+        'user_id',
+        'userid',
+        'UserId',
+        'nameid',
+        'sub',
+        'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier',
+      ];
+
+      for (final key in candidates) {
+        final v = claims[key];
+        if (v == null) continue;
+        if (v is int) return v;
+        if (v is String) {
+          final parsed = int.tryParse(v);
+          if (parsed != null) return parsed;
+        }
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
   }
 
-  // -------------------------------------------------------------
-  // ID Map yükle/kaydet
-  // -------------------------------------------------------------
+  Future<void> _resolveCurrentUserId() async {
+    if (_currentUserId != null) return; // zaten çözüldü
+
+    final prefs = await SharedPreferences.getInstance();
+
+    // 1) Doğrudan saklanmış mı?
+    final stored = prefs.getInt('user_ID') ??
+        prefs.getInt('userId') ??
+        prefs.getInt('userid');
+    if (stored != null) {
+      _currentUserId = stored;
+      return;
+    }
+
+    // 2) Token'dan decode et
+    final token = prefs.getString('token');
+    if (token != null && token.isNotEmpty) {
+      _currentUserId = _extractUserIdFromToken(token);
+    }
+  }
+
   Future<Map<int, int>> _loadIdMap() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_idMapKey);
     if (raw == null || raw.isEmpty) return {};
     try {
-      final Map<String, dynamic> decoded = jsonDecode(raw);
+      final decoded = jsonDecode(raw) as Map<String, dynamic>;
       return decoded.map((k, v) => MapEntry(int.parse(k), v as int));
     } catch (_) {
       return {};
     }
   }
 
-  Future<void> _saveIdMap(Map<int, int> map) async {
+  Future<void> _saveIdMap() async {
     final prefs = await SharedPreferences.getInstance();
-    final encodable = map.map((k, v) => MapEntry(k.toString(), v));
+    final encodable = _idMap.map((k, v) => MapEntry(k.toString(), v));
     await prefs.setString(_idMapKey, jsonEncode(encodable));
   }
 
-  Future<int> _getNextCounter() async {
-    final prefs = await SharedPreferences.getInstance();
-    final current = prefs.getInt(_idCounterKey) ?? 0;
-    final next = current + 1;
-    await prefs.setInt(_idCounterKey, next);
-    return next;
+  int _nextLocalId() {
+    if (_idMap.isEmpty) return 1;
+    final maxId = _idMap.values.reduce((a, b) => a > b ? a : b);
+    return maxId + 1;
   }
 
-  // Backend'den gelen customer'lara displayId atar.
-  // - Daha önce gördüğü customer'sa: kayıtlı numarayı verir
-  // - Yeni customer'sa: counter'ı arttırıp yeni numara verir
-  // Silinenleri haritadan KALDIRMAZ — sıra deliği kalsın diye.
-  Future<void> _assignDisplayIds(List<dynamic> customers) async {
+  /// Backend listesi gelince her customer'a localId atar.
+  Future<void> _assignLocalIds(List<dynamic> customers) async {
+    await _resolveCurrentUserId();
     _idMap = await _loadIdMap();
     bool changed = false;
 
     for (final c in customers) {
-      final int cid =
+      final int customerId =
           (c['customer_ID'] ?? c['Customer_ID'] ?? 0) as int;
-      if (cid == 0) continue;
+      if (customerId == 0) continue;
 
-      if (_idMap.containsKey(cid)) {
-        c['displayId'] = _idMap[cid];
+      if (_idMap.containsKey(customerId)) {
+        c['localId'] = _idMap[customerId];
       } else {
-        final newId = await _getNextCounter();
-        _idMap[cid] = newId;
-        c['displayId'] = newId;
+        final newLocalId = _nextLocalId();
+        _idMap[customerId] = newLocalId;
+        c['localId'] = newLocalId;
         changed = true;
       }
     }
 
-    if (changed) await _saveIdMap(_idMap);
+    if (changed) await _saveIdMap();
+  }
+
+  Future<void> _removeFromIdMap(int customerId) async {
+    if (_idMap.containsKey(customerId)) {
+      _idMap.remove(customerId);
+      await _saveIdMap();
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchUserCustomers();
   }
 
   // -------------------------------------------------------------
@@ -134,11 +215,11 @@ class _CustomersPageState extends State<CustomersPage> {
         final List<dynamic> fetchedData = jsonDecode(response.body);
         final activeCustomers = fetchedData
             .where((c) =>
-                c['isDeleted'] == false || c['IsDeleted'] == false)
+                (c['isDeleted'] ?? c['IsDeleted'] ?? false) == false)
             .toList();
 
-        // 🔥 Her customer'a kalıcı displayId ata
-        await _assignDisplayIds(activeCustomers);
+        // 🔥 User'a özel localId ata
+        await _assignLocalIds(activeCustomers);
 
         setState(() {
           _allCustomers = activeCustomers;
@@ -158,12 +239,12 @@ class _CustomersPageState extends State<CustomersPage> {
   }
 
   // -------------------------------------------------------------
-  // Delete — haritaya dokunma, deliği koru
+  // Delete
   // -------------------------------------------------------------
   Future<void> _deleteCustomer(dynamic customer) async {
-    final dbId =
-        customer['customer_ID'] ?? customer['Customer_ID'] ?? customer['id'];
-    if (dbId == null) return;
+    final int dbId =
+        (customer['customer_ID'] ?? customer['Customer_ID'] ?? 0) as int;
+    if (dbId == 0) return;
 
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -179,8 +260,8 @@ class _CustomersPageState extends State<CustomersPage> {
       );
 
       if (response.statusCode == 200 || response.statusCode == 204) {
+        await _removeFromIdMap(dbId);
         _showSnackBar('Customer successfully deleted.', isSuccess: true);
-        // _idMap'ten silmiyoruz! O numara "delik" kalmalı.
         _fetchUserCustomers();
       } else {
         _showSnackBar('Delete failed.');
@@ -198,6 +279,7 @@ class _CustomersPageState extends State<CustomersPage> {
     if (query.isEmpty) {
       results = _allCustomers;
     } else {
+      final q = query.toLowerCase();
       results = _allCustomers.where((customer) {
         final name = (customer['full_Name'] ?? customer['Full_Name'] ?? '')
             .toString()
@@ -205,8 +287,7 @@ class _CustomersPageState extends State<CustomersPage> {
         final email = (customer['email'] ?? customer['Email'] ?? '')
             .toString()
             .toLowerCase();
-        return name.contains(query.toLowerCase()) ||
-            email.contains(query.toLowerCase());
+        return name.contains(q) || email.contains(q);
       }).toList();
     }
 
@@ -220,8 +301,8 @@ class _CustomersPageState extends State<CustomersPage> {
   void _applySort() {
     setState(() {
       _filteredCustomers.sort((a, b) {
-        final int idA = a['displayId'] ?? 0;
-        final int idB = b['displayId'] ?? 0;
+        final int idA = a['localId'] ?? 0;
+        final int idB = b['localId'] ?? 0;
         return _isSortAscending ? idA.compareTo(idB) : idB.compareTo(idA);
       });
     });
@@ -244,12 +325,10 @@ class _CustomersPageState extends State<CustomersPage> {
       _showMoreDrawer();
       return;
     }
-
     if (index == 0) {
       Navigator.popUntil(context, (route) => route.isFirst);
       return;
     }
-
     if (index == 1) {
       Navigator.pushReplacement(
         context,
@@ -258,7 +337,6 @@ class _CustomersPageState extends State<CustomersPage> {
       );
       return;
     }
-
     if (index == 2) {
       Navigator.pushReplacement(
         context,
@@ -330,7 +408,8 @@ class _CustomersPageState extends State<CustomersPage> {
 
             // Search & Sort
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
               child: Row(
                 children: [
                   Expanded(
@@ -507,11 +586,8 @@ class _CustomersPageState extends State<CustomersPage> {
     );
   }
 
-  // -------------------------------------------------------------
-  // Customer Card — "ID: 1 - Name" formatı
-  // -------------------------------------------------------------
   Widget _buildCustomerCard(dynamic customer) {
-    final int displayId = customer['displayId'] ?? 0;
+    final int displayId = customer['localId'] ?? 0;
     final String name =
         (customer['full_Name'] ?? customer['Full_Name'] ?? '').toString();
 
@@ -528,7 +604,6 @@ class _CustomersPageState extends State<CustomersPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 🔥 ID: 1 - John Doe
             Text(
               'ID: $displayId - $name',
               style: const TextStyle(
