@@ -153,27 +153,41 @@ class _CustomersPageState extends State<CustomersPage> {
 
   /// Backend listesi gelince her customer'a localId atar.
   Future<void> _assignLocalIds(List<dynamic> customers) async {
-    await _resolveCurrentUserId();
-    _idMap = await _loadIdMap();
-    bool changed = false;
+  await _resolveCurrentUserId();
+  _idMap = await _loadIdMap();
+  bool changed = false;
 
-    for (final c in customers) {
-      final int customerId =
-          (c['customer_ID'] ?? c['Customer_ID'] ?? 0) as int;
-      if (customerId == 0) continue;
+  final activeIds = customers
+      .map((c) => (c['customer_ID'] ?? c['Customer_ID'] ?? 0) as int)
+      .where((id) => id != 0)
+      .toSet();
 
-      if (_idMap.containsKey(customerId)) {
-        c['localId'] = _idMap[customerId];
-      } else {
-        final newLocalId = _nextLocalId();
-        _idMap[customerId] = newLocalId;
-        c['localId'] = newLocalId;
-        changed = true;
-      }
+  final orphans =
+      _idMap.keys.where((k) => !activeIds.contains(k)).toList();
+  if (orphans.isNotEmpty) {
+    for (final k in orphans) {
+      _idMap.remove(k);
     }
-
-    if (changed) await _saveIdMap();
+    changed = true;
   }
+
+  for (final c in customers) {
+    final int customerId =
+        (c['customer_ID'] ?? c['Customer_ID'] ?? 0) as int;
+    if (customerId == 0) continue;
+
+    if (_idMap.containsKey(customerId)) {
+      c['localId'] = _idMap[customerId];
+    } else {
+      final newLocalId = _nextLocalId();
+      _idMap[customerId] = newLocalId;
+      c['localId'] = newLocalId;
+      changed = true;
+    }
+  }
+
+  if (changed) await _saveIdMap();
+}
 
   Future<void> _removeFromIdMap(int customerId) async {
     if (_idMap.containsKey(customerId)) {

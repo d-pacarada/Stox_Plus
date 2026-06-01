@@ -146,27 +146,44 @@ class _ProductsPageState extends State<ProductsPage> {
   }
 
   Future<void> _assignLocalIds(List<dynamic> products) async {
-    await _resolveCurrentUserId();
-    _idMap = await _loadIdMap();
-    bool changed = false;
+  await _resolveCurrentUserId();
+  _idMap = await _loadIdMap();
+  bool changed = false;
 
-    for (final p in products) {
-      final int productId =
-          (p['product_ID'] ?? p['Product_ID'] ?? 0) as int;
-      if (productId == 0) continue;
+  // 🔥 Backend'den gelen aktif product_ID'ler (DB'de var ve IsDeleted=false)
+  final activeIds = products
+      .map((p) => (p['product_ID'] ?? p['Product_ID'] ?? 0) as int)
+      .where((id) => id != 0)
+      .toSet();
 
-      if (_idMap.containsKey(productId)) {
-        p['localId'] = _idMap[productId];
-      } else {
-        final newLocalId = _nextLocalId();
-        _idMap[productId] = newLocalId;
-        p['localId'] = newLocalId;
-        changed = true;
-      }
+  // 🔥 Orphan cleanup: map'te olup backend'den gelmeyenleri sil
+  // (DB'den manuel silinmiş veya soft-delete edilmiş ürünler)
+  final orphans =
+      _idMap.keys.where((k) => !activeIds.contains(k)).toList();
+  if (orphans.isNotEmpty) {
+    for (final k in orphans) {
+      _idMap.remove(k);
     }
-
-    if (changed) await _saveIdMap();
+    changed = true;
   }
+
+  for (final p in products) {
+    final int productId =
+        (p['product_ID'] ?? p['Product_ID'] ?? 0) as int;
+    if (productId == 0) continue;
+
+    if (_idMap.containsKey(productId)) {
+      p['localId'] = _idMap[productId];
+    } else {
+      final newLocalId = _nextLocalId();
+      _idMap[productId] = newLocalId;
+      p['localId'] = newLocalId;
+      changed = true;
+    }
+  }
+
+  if (changed) await _saveIdMap();
+}
 
   Future<void> _removeFromIdMap(int productId) async {
     if (_idMap.containsKey(productId)) {
