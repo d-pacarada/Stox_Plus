@@ -1,6 +1,11 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+import '../config/api_config.dart';
 import '../services/auth_service.dart';
 import 'register_screen.dart';
 import 'home_screen.dart';
@@ -19,7 +24,15 @@ class _LoginScreenState extends State<LoginScreen> {
 
   bool _obscurePassword = true;
   bool _isLoading = false;
+  bool _isGoogleLoading = false;
   String? _errorMessage;
+
+  // 🔥 Google Sign-In configuration
+  final GoogleSignIn _googleSignIn = GoogleSignIn(
+    serverClientId:
+        '111004065841-blvi17cnfakliq21eous18nvmq3t60no.apps.googleusercontent.com',
+    scopes: ['email', 'profile'],
+  );
 
   @override
   void dispose() {
@@ -45,11 +58,76 @@ class _LoginScreenState extends State<LoginScreen> {
 
     if (result['success']) {
       Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (_) => HomeScreen(role: result['role'] ?? 'User')),
+        context,
+        MaterialPageRoute(
+            builder: (_) => HomeScreen(role: result['role'] ?? 'User')),
       );
     } else {
       setState(() => _errorMessage = result['message']);
+    }
+  }
+
+  // 🔥 Google Sign-In flow
+  Future<void> _signInWithGoogle() async {
+    setState(() {
+      _isGoogleLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      await _googleSignIn.signOut(); // ensure account picker appears
+
+      final GoogleSignInAccount? account = await _googleSignIn.signIn();
+      if (account == null) {
+        setState(() => _isGoogleLoading = false);
+        return; // user cancelled
+      }
+
+      final auth = await account.authentication;
+      final idToken = auth.idToken;
+
+      if (idToken == null) {
+        setState(() {
+          _errorMessage =
+              'Could not get Google ID token. Check serverClientId setup.';
+          _isGoogleLoading = false;
+        });
+        return;
+      }
+
+      final response = await http.post(
+        Uri.parse('${ApiConfig.baseUrl}/auth/google-login'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'IdToken': idToken}),
+      );
+
+      if (!mounted) return;
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('token', data['token'] ?? '');
+        await prefs.setString('refreshToken', data['refreshToken'] ?? '');
+        await prefs.setString('role', data['role'] ?? 'User');
+
+        if (mounted) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+                builder: (_) =>
+                    HomeScreen(role: data['role'] ?? 'User')),
+          );
+        }
+      } else {
+        setState(() {
+          _errorMessage =
+              'Google login failed (${response.statusCode}): ${response.body}';
+        });
+      }
+    } catch (e) {
+      setState(() => _errorMessage = 'Google sign-in error: $e');
+    } finally {
+      if (mounted) setState(() => _isGoogleLoading = false);
     }
   }
 
@@ -81,7 +159,6 @@ class _LoginScreenState extends State<LoginScreen> {
                 children: [
                   const SizedBox(height: 32),
 
-                  // Logo centered
                   Center(
                     child: SvgPicture.asset(
                       'assets/images/logo.svg',
@@ -91,7 +168,6 @@ class _LoginScreenState extends State<LoginScreen> {
 
                   const SizedBox(height: 36),
 
-                  // Back + Title row
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
@@ -118,14 +194,12 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                         ),
                       ),
-                      // Spacer to balance the back button
                       const SizedBox(width: 60),
                     ],
                   ),
 
                   const SizedBox(height: 32),
 
-                  // Error message
                   if (_errorMessage != null)
                     Container(
                       margin: const EdgeInsets.only(bottom: 16),
@@ -151,7 +225,6 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                     ),
 
-                  // Email label
                   const Text(
                     'Email',
                     style: TextStyle(
@@ -162,7 +235,6 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: 8),
 
-                  // Email field
                   TextFormField(
                     controller: _emailController,
                     keyboardType: TextInputType.emailAddress,
@@ -175,7 +247,6 @@ class _LoginScreenState extends State<LoginScreen> {
 
                   const SizedBox(height: 20),
 
-                  // Password label
                   const Text(
                     'Password',
                     style: TextStyle(
@@ -186,7 +257,6 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: 8),
 
-                  // Password field
                   TextFormField(
                     controller: _passwordController,
                     obscureText: _obscurePassword,
@@ -210,7 +280,6 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ),
 
-                  // Forgot Password
                   Align(
                     alignment: Alignment.centerRight,
                     child: TextButton(
@@ -230,12 +299,12 @@ class _LoginScreenState extends State<LoginScreen> {
 
                   const SizedBox(height: 8),
 
-                  // Login Button
                   SizedBox(
                     width: double.infinity,
                     height: 58,
                     child: ElevatedButton(
-                      onPressed: _isLoading ? null : _login,
+                      onPressed:
+                          (_isLoading || _isGoogleLoading) ? null : _login,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF1B2D4F),
                         foregroundColor: Colors.white,
@@ -268,7 +337,6 @@ class _LoginScreenState extends State<LoginScreen> {
 
                   const SizedBox(height: 28),
 
-                  // Or With divider
                   const Row(
                     children: [
                       Expanded(
@@ -290,14 +358,14 @@ class _LoginScreenState extends State<LoginScreen> {
 
                   const SizedBox(height: 20),
 
-                  // Gmail Button
+                  // 🔥 Gmail Button — now functional
                   SizedBox(
                     width: double.infinity,
                     height: 58,
                     child: OutlinedButton(
-                      onPressed: () {
-                        // TODO: Google sign in
-                      },
+                      onPressed: (_isLoading || _isGoogleLoading)
+                          ? null
+                          : _signInWithGoogle,
                       style: OutlinedButton.styleFrom(
                         foregroundColor: const Color(0xFF1B2D4F),
                         backgroundColor: Colors.white,
@@ -307,35 +375,43 @@ class _LoginScreenState extends State<LoginScreen> {
                           borderRadius: BorderRadius.circular(14),
                         ),
                       ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          // Google G icon
-                          Container(
-                            width: 24,
-                            height: 24,
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(4),
+                      child: _isGoogleLoading
+                          ? const SizedBox(
+                              width: 22,
+                              height: 22,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.5,
+                                color: Color(0xFF1B2D4F),
+                              ),
+                            )
+                          : Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Container(
+                                  width: 24,
+                                  height: 24,
+                                  decoration: BoxDecoration(
+                                    borderRadius:
+                                        BorderRadius.circular(4),
+                                  ),
+                                  child: const _GoogleIcon(),
+                                ),
+                                const SizedBox(width: 12),
+                                const Text(
+                                  'Gmail',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                    color: Color(0xFF1B2D4F),
+                                  ),
+                                ),
+                              ],
                             ),
-                            child: const _GoogleIcon(),
-                          ),
-                          const SizedBox(width: 12),
-                          const Text(
-                            'Gmail',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF1B2D4F),
-                            ),
-                          ),
-                        ],
-                      ),
                     ),
                   ),
 
                   const SizedBox(height: 40),
 
-                  // Sign Up link
                   Center(
                     child: RichText(
                       text: TextSpan(
@@ -356,7 +432,8 @@ class _LoginScreenState extends State<LoginScreen> {
                                 Navigator.pushReplacement(
                                   context,
                                   MaterialPageRoute(
-                                      builder: (_) => const RegisterScreen()),
+                                      builder: (_) =>
+                                          const RegisterScreen()),
                                 );
                               },
                           ),
@@ -409,15 +486,13 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
-// Google G icon drawn with CustomPainter
+// Google G icon
 class _GoogleIcon extends StatelessWidget {
   const _GoogleIcon();
 
   @override
   Widget build(BuildContext context) {
-    return CustomPaint(
-      painter: _GoogleIconPainter(),
-    );
+    return CustomPaint(painter: _GoogleIconPainter());
   }
 }
 
@@ -427,7 +502,6 @@ class _GoogleIconPainter extends CustomPainter {
     final center = Offset(size.width / 2, size.height / 2);
     final radius = size.width / 2;
 
-    // Blue arc
     final bluePaint = Paint()
       ..color = const Color(0xFF4285F4)
       ..style = PaintingStyle.stroke
@@ -440,7 +514,6 @@ class _GoogleIconPainter extends CustomPainter {
       bluePaint,
     );
 
-    // Red arc
     final redPaint = Paint()
       ..color = const Color(0xFFEA4335)
       ..style = PaintingStyle.stroke
@@ -453,7 +526,6 @@ class _GoogleIconPainter extends CustomPainter {
       redPaint,
     );
 
-    // Yellow arc
     final yellowPaint = Paint()
       ..color = const Color(0xFFFBBC05)
       ..style = PaintingStyle.stroke
@@ -466,7 +538,6 @@ class _GoogleIconPainter extends CustomPainter {
       yellowPaint,
     );
 
-    // Horizontal bar for G
     final barPaint = Paint()
       ..color = const Color(0xFF4285F4)
       ..strokeWidth = size.width * 0.28

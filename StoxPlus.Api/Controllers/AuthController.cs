@@ -86,6 +86,117 @@ namespace Server.Controllers
             return Ok(new { token, refreshToken = refreshToken.Token, role });
         }
 
+        [HttpPost("google-login")]
+        public async Task<IActionResult> GoogleLogin([FromBody] GoogleLoginRequest request)
+        {
+            if (string.IsNullOrWhiteSpace(request.IdToken))
+                return BadRequest("Google ID token is required.");
+
+            Google.Apis.Auth.GoogleJsonWebSignature.Payload payload;
+            try
+            {
+                var settings = new Google.Apis.Auth.GoogleJsonWebSignature.ValidationSettings
+                {
+                    Audience = new[] { _config["GoogleAuth:WebClientId"] }
+                };
+                payload = await Google.Apis.Auth.GoogleJsonWebSignature
+                    .ValidateAsync(request.IdToken, settings);
+            }
+            catch (Exception ex)
+            {
+                return Unauthorized($"Invalid Google token: {ex.Message}");
+            }
+
+            if (string.IsNullOrWhiteSpace(payload.Email))
+                return BadRequest("Google account has no email.");
+
+            var user = await _context.User.FirstOrDefaultAsync(u => u.Email == payload.Email);
+            bool isNewUser = false;
+
+            if (user == null)
+            {
+                user = new User
+                {
+                    Business_Name = payload.Name ?? payload.Email,
+                    Business_Number = "",
+                    Email = payload.Email,
+                    Phone_Number = "",
+                    Address = "",
+                    Transit_Number = "",
+                    Password = BCrypt.Net.BCrypt.HashPassword(Guid.NewGuid().ToString()),
+                    DATE = DateTime.Now
+                };
+                _context.User.Add(user);
+                await _context.SaveChangesAsync();
+
+                var defaultRole = await _context.Role.FirstOrDefaultAsync(r => r.Role_Name == "User");
+                if (defaultRole == null)
+                    return StatusCode(500, "Default role 'User' not found.");
+
+                _context.UserRole.Add(new UserRole
+                {
+                    User_ID = user.User_ID,
+                    Role_ID = defaultRole.Role_ID
+                });
+
+                _context.UserActivityLogs.Add(new UserActivityLog
+                {
+                    UserId = user.User_ID,
+                    Action = "Registered (Google)",
+                    Timestamp = DateTime.UtcNow
+                });
+
+                // 🔥 SAVE before querying role
+                await _context.SaveChangesAsync();
+
+                isNewUser = true;
+            }
+
+            var role = await _context.UserRole
+                .Include(ur => ur.Role)
+                .Where(ur => ur.User_ID == user.User_ID)
+                .Select(ur => ur.Role.Role_Name)
+                .FirstOrDefaultAsync();
+
+            // 🔥 Safety fallback in case role still missing (e.g. legacy user with no role row)
+            if (string.IsNullOrEmpty(role))
+            {
+                var defaultRole = await _context.Role.FirstOrDefaultAsync(r => r.Role_Name == "User");
+                if (defaultRole != null)
+                {
+                    _context.UserRole.Add(new UserRole
+                    {
+                        User_ID = user.User_ID,
+                        Role_ID = defaultRole.Role_ID
+                    });
+                    await _context.SaveChangesAsync();
+                    role = defaultRole.Role_Name;
+                }
+                else
+                {
+                    role = "User"; // last-resort default
+                }
+            }
+
+            if (!isNewUser)
+            {
+                _context.UserActivityLogs.Add(new UserActivityLog
+                {
+                    UserId = user.User_ID,
+                    Action = "Logged in (Google)",
+                    Timestamp = DateTime.UtcNow
+                });
+            }
+
+            var token = GenerateJwtToken(user, role);
+            var refreshToken = GenerateRefreshToken(user.User_ID);
+
+            _context.RefreshTokens.Add(refreshToken);
+            await _context.SaveChangesAsync();
+
+            return Ok(new { token, refreshToken = refreshToken.Token, role, isNewUser });
+        }
+
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginRequest request)
         {
@@ -114,6 +225,7 @@ namespace Server.Controllers
 
             return Ok(new { token, refreshToken = refreshToken.Token, role });
         }
+
         [HttpPost("refresh-token")]
         public async Task<IActionResult> RefreshToken([FromBody] RefreshTokenRequest request)
         {

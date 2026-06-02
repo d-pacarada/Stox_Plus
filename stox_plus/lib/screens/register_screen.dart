@@ -1,6 +1,11 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+import '../config/api_config.dart';
 import '../services/auth_service.dart';
 import 'login_screen.dart';
 import 'home_screen.dart';
@@ -27,7 +32,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _obscurePassword = true;
   bool _obscureConfirm = true;
   bool _isLoading = false;
+  bool _isGoogleLoading = false;
   String? _errorMessage;
+
+  // 🔥 Same GoogleSignIn config as login screen
+  final GoogleSignIn _googleSignIn = GoogleSignIn(
+    serverClientId:
+        '111004065841-blvi17cnfakliq21eous18nvmq3t60no.apps.googleusercontent.com',
+    scopes: ['email', 'profile'],
+  );
 
   @override
   void dispose() {
@@ -65,11 +78,76 @@ class _RegisterScreenState extends State<RegisterScreen> {
     if (result['success']) {
       Navigator.pushAndRemoveUntil(
         context,
-        MaterialPageRoute(builder: (_) => HomeScreen(role: result['role'] ?? 'User')),
+        MaterialPageRoute(
+            builder: (_) => HomeScreen(role: result['role'] ?? 'User')),
         (_) => false,
       );
     } else {
       setState(() => _errorMessage = result['message']);
+    }
+  }
+
+  // 🔥 Sign up / sign in via Google (backend creates user if missing)
+  Future<void> _signUpWithGoogle() async {
+    setState(() {
+      _isGoogleLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      await _googleSignIn.signOut();
+      final GoogleSignInAccount? account = await _googleSignIn.signIn();
+      if (account == null) {
+        setState(() => _isGoogleLoading = false);
+        return;
+      }
+
+      final auth = await account.authentication;
+      final idToken = auth.idToken;
+
+      if (idToken == null) {
+        setState(() {
+          _errorMessage =
+              'Could not get Google ID token. Check serverClientId.';
+          _isGoogleLoading = false;
+        });
+        return;
+      }
+
+      final response = await http.post(
+        Uri.parse('${ApiConfig.baseUrl}/auth/google-login'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'IdToken': idToken}),
+      );
+
+      if (!mounted) return;
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('token', data['token'] ?? '');
+        await prefs.setString('refreshToken', data['refreshToken'] ?? '');
+        await prefs.setString('role', data['role'] ?? 'User');
+
+        if (mounted) {
+          Navigator.pushAndRemoveUntil(
+            context,
+            MaterialPageRoute(
+                builder: (_) =>
+                    HomeScreen(role: data['role'] ?? 'User')),
+            (_) => false,
+          );
+        }
+      } else {
+        setState(() {
+          _errorMessage =
+              'Google sign-up failed (${response.statusCode}): ${response.body}';
+        });
+      }
+    } catch (e) {
+      setState(() => _errorMessage = 'Google sign-up error: $e');
+    } finally {
+      if (mounted) setState(() => _isGoogleLoading = false);
     }
   }
 
@@ -100,18 +178,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const SizedBox(height: 32),
-
-                  // Logo
                   Center(
                     child: SvgPicture.asset(
                       'assets/images/logo.svg',
                       height: 60,
                     ),
                   ),
-
                   const SizedBox(height: 28),
-
-                  // Back + Title
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
@@ -141,10 +214,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       const SizedBox(width: 60),
                     ],
                   ),
-
                   const SizedBox(height: 28),
 
-                  // Error
                   if (_errorMessage != null)
                     Container(
                       margin: const EdgeInsets.only(bottom: 16),
@@ -169,6 +240,72 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       ),
                     ),
 
+                  // 🔥 GMAIL BUTTON (at top — quick signup option)
+                  SizedBox(
+                    width: double.infinity,
+                    height: 58,
+                    child: OutlinedButton(
+                      onPressed: (_isLoading || _isGoogleLoading)
+                          ? null
+                          : _signUpWithGoogle,
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF1B2D4F),
+                        backgroundColor: Colors.white,
+                        side: const BorderSide(
+                            color: Color(0xFFD0E4F0), width: 1.5),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      child: _isGoogleLoading
+                          ? const SizedBox(
+                              width: 22,
+                              height: 22,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.5,
+                                color: Color(0xFF1B2D4F),
+                              ),
+                            )
+                          : Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Container(
+                                  width: 24,
+                                  height: 24,
+                                  child: const _GoogleIcon(),
+                                ),
+                                const SizedBox(width: 12),
+                                const Text(
+                                  'Sign up with Gmail',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                    color: Color(0xFF1B2D4F),
+                                  ),
+                                ),
+                              ],
+                            ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 24),
+
+                  const Row(
+                    children: [
+                      Expanded(child: Divider(color: Color(0xFF9BB5C8))),
+                      Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 14),
+                        child: Text(
+                          'or sign up manually',
+                          style: TextStyle(
+                              color: Color(0xFF4A6580), fontSize: 14),
+                        ),
+                      ),
+                      Expanded(child: Divider(color: Color(0xFF9BB5C8))),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+
                   // ── Business Info ──────────────────────────
                   _sectionLabel('Business Information'),
                   const SizedBox(height: 12),
@@ -178,10 +315,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   _field(
                     controller: _businessNameController,
                     hint: 'Acme Corp',
-                    validator: (v) =>
-                        v!.isEmpty ? 'Required' : null,
+                    validator: (v) => v!.isEmpty ? 'Required' : null,
                   ),
-
                   const SizedBox(height: 16),
                   _label('Business Number'),
                   const SizedBox(height: 8),
@@ -191,7 +326,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     keyboardType: TextInputType.number,
                     validator: (v) => v!.isEmpty ? 'Required' : null,
                   ),
-
                   const SizedBox(height: 16),
                   _label('Transit Number'),
                   const SizedBox(height: 8),
@@ -201,7 +335,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     keyboardType: TextInputType.number,
                     validator: (v) => v!.isEmpty ? 'Required' : null,
                   ),
-
                   const SizedBox(height: 16),
                   _label('Address'),
                   const SizedBox(height: 8),
@@ -216,7 +349,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   // ── Contact ────────────────────────────────
                   _sectionLabel('Contact Details'),
                   const SizedBox(height: 12),
-
                   _label('Email'),
                   const SizedBox(height: 8),
                   _field(
@@ -229,7 +361,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       return null;
                     },
                   ),
-
                   const SizedBox(height: 16),
                   _label('Phone Number'),
                   const SizedBox(height: 8),
@@ -245,7 +376,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   // ── Security ───────────────────────────────
                   _sectionLabel('Security'),
                   const SizedBox(height: 12),
-
                   _label('Password'),
                   const SizedBox(height: 8),
                   _field(
@@ -269,7 +399,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           () => _obscurePassword = !_obscurePassword),
                     ),
                   ),
-
                   const SizedBox(height: 16),
                   _label('Confirm Password'),
                   const SizedBox(height: 8),
@@ -299,12 +428,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
                   const SizedBox(height: 36),
 
-                  // Register Button
                   SizedBox(
                     width: double.infinity,
                     height: 58,
                     child: ElevatedButton(
-                      onPressed: _isLoading ? null : _register,
+                      onPressed: (_isLoading || _isGoogleLoading)
+                          ? null
+                          : _register,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF1B2D4F),
                         foregroundColor: Colors.white,
@@ -354,7 +484,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               ..onTap = () => Navigator.pushReplacement(
                                     context,
                                     MaterialPageRoute(
-                                        builder: (_) => const LoginScreen()),
+                                        builder: (_) =>
+                                            const LoginScreen()),
                                   ),
                           ),
                         ],
@@ -448,4 +579,71 @@ class _RegisterScreenState extends State<RegisterScreen> {
       ),
     );
   }
+}
+
+// Google G icon (same as login screen)
+class _GoogleIcon extends StatelessWidget {
+  const _GoogleIcon();
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(painter: _GoogleIconPainter());
+  }
+}
+
+class _GoogleIconPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = size.width / 2;
+
+    final bluePaint = Paint()
+      ..color = const Color(0xFF4285F4)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = size.width * 0.28;
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: radius * 0.72),
+      -0.5,
+      3.8,
+      false,
+      bluePaint,
+    );
+
+    final redPaint = Paint()
+      ..color = const Color(0xFFEA4335)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = size.width * 0.28;
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: radius * 0.72),
+      3.3,
+      1.2,
+      false,
+      redPaint,
+    );
+
+    final yellowPaint = Paint()
+      ..color = const Color(0xFFFBBC05)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = size.width * 0.28;
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: radius * 0.72),
+      2.3,
+      1.0,
+      false,
+      yellowPaint,
+    );
+
+    final barPaint = Paint()
+      ..color = const Color(0xFF4285F4)
+      ..strokeWidth = size.width * 0.28
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(
+      Offset(center.dx, center.dy),
+      Offset(center.dx + radius * 0.72, center.dy),
+      barPaint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
