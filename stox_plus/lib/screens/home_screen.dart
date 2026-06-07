@@ -30,19 +30,355 @@ class _HomeScreenState extends State<HomeScreen> {
   int _currentIndex = 0;
   bool get isAdmin => widget.role == 'Admin';
 
-  void _onNavTap(int index) {
-    if (index == 1) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (context) => ProductsPage(role: widget.role)),
+  // Missing info alert
+  bool _hasMissingInfo = false;
+  bool _alertDismissed = false;
+
+  // Complete profile form controllers
+  final _businessNumberController = TextEditingController();
+  final _phoneController = TextEditingController();
+  final _addressController = TextEditingController();
+  final _transitController = TextEditingController();
+  bool _isSavingProfile = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkMissingInfo();
+  }
+
+  @override
+  void dispose() {
+    _businessNumberController.dispose();
+    _phoneController.dispose();
+    _addressController.dispose();
+    _transitController.dispose();
+    super.dispose();
+  }
+
+  // -------------------------------------------------------------
+  // Check if user has missing info
+  // -------------------------------------------------------------
+  Future<void> _checkMissingInfo() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('token') ?? '';
+      if (token.isEmpty) return;
+
+      final response = await http.get(
+        Uri.parse('${ApiConfig.baseUrl}/settings/profile'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final bool missing =
+            (data['business_Number'] == null || data['business_Number'].toString().isEmpty) ||
+            (data['phone_Number'] == null || data['phone_Number'].toString().isEmpty) ||
+            (data['address'] == null || data['address'].toString().isEmpty) ||
+            (data['transit_Number'] == null || data['transit_Number'].toString().isEmpty);
+
+        if (mounted) setState(() => _hasMissingInfo = missing);
+      }
+    } catch (_) {}
+  }
+
+  // -------------------------------------------------------------
+  // Save missing info
+  // -------------------------------------------------------------
+  Future<void> _saveMissingInfo() async {
+    if (_businessNumberController.text.trim().isEmpty &&
+        _phoneController.text.trim().isEmpty &&
+        _addressController.text.trim().isEmpty &&
+        _transitController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please fill in at least one field.'),
+          backgroundColor: Colors.red,
+        ),
       );
       return;
     }
-    if (index == 2) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (context) => const SalesPage()),
+
+    setState(() => _isSavingProfile = true);
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('token') ?? '';
+
+      final response = await http.put(
+        Uri.parse('${ApiConfig.baseUrl}/settings/update-details'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          'BusinessNumber': _businessNumberController.text.trim(),
+          'PhoneNumber': _phoneController.text.trim(),
+          'Address': _addressController.text.trim(),
+          'TransitNumber': _transitController.text.trim(),
+        }),
       );
+
+      if (!mounted) return;
+
+      if (response.statusCode == 200) {
+        Navigator.pop(context); // close dialog
+        setState(() {
+          _hasMissingInfo = false;
+          _alertDismissed = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Profile completed successfully ✅'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: ${response.statusCode}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Connection error: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isSavingProfile = false);
+    }
+  }
+
+  // -------------------------------------------------------------
+  // Show complete profile popup
+  // -------------------------------------------------------------
+  void _showCompleteProfileDialog() {
+    _businessNumberController.clear();
+    _phoneController.clear();
+    _addressController.clear();
+    _transitController.clear();
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => StatefulBuilder(
+        builder: (context, setDialogState) => Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          backgroundColor: Colors.white,
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Header
+                  Row(
+                    children: [
+                      Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: Colors.red.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(Icons.warning_amber_rounded,
+                            color: Colors.red, size: 22),
+                      ),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Complete Your Profile',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w800,
+                                color: Color(0xFF1B2D4F),
+                              ),
+                            ),
+                            Text(
+                              'Some information is missing',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Color(0xFF9BA5B4),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close, color: Color(0xFF9BA5B4)),
+                        onPressed: () {
+                          setState(() => _alertDismissed = true);
+                          Navigator.pop(context);
+                        },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  const Divider(color: Color(0xFFE8EDF2)),
+                  const SizedBox(height: 16),
+
+                  // Business Number
+                  _dialogLabel('Business Number'),
+                  const SizedBox(height: 6),
+                  _dialogInput(
+                    controller: _businessNumberController,
+                    hint: 'Enter business number',
+                    icon: Icons.business_outlined,
+                  ),
+                  const SizedBox(height: 14),
+
+                  // Phone Number
+                  _dialogLabel('Phone Number'),
+                  const SizedBox(height: 6),
+                  _dialogInput(
+                    controller: _phoneController,
+                    hint: 'Enter phone number',
+                    icon: Icons.phone_outlined,
+                    keyboardType: TextInputType.phone,
+                  ),
+                  const SizedBox(height: 14),
+
+                  // Address
+                  _dialogLabel('Address'),
+                  const SizedBox(height: 6),
+                  _dialogInput(
+                    controller: _addressController,
+                    hint: 'Enter address',
+                    icon: Icons.location_on_outlined,
+                  ),
+                  const SizedBox(height: 14),
+
+                  // Transit Number
+                  _dialogLabel('Transit Number'),
+                  const SizedBox(height: 6),
+                  _dialogInput(
+                    controller: _transitController,
+                    hint: 'Enter transit number',
+                    icon: Icons.numbers_outlined,
+                  ),
+                  const SizedBox(height: 24),
+
+                  // Save button
+                  SizedBox(
+                    width: double.infinity,
+                    height: 50,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF1B2D4F),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      onPressed: _isSavingProfile ? null : _saveMissingInfo,
+                      child: _isSavingProfile
+                          ? const CircularProgressIndicator(
+                              color: Colors.white, strokeWidth: 2)
+                          : const Text(
+                              'Save & Complete Profile',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+
+                  // Skip button
+                  SizedBox(
+                    width: double.infinity,
+                    child: TextButton(
+                      onPressed: () {
+                        setState(() => _alertDismissed = true);
+                        Navigator.pop(context);
+                      },
+                      child: const Text(
+                        'Skip for now',
+                        style: TextStyle(
+                          color: Color(0xFF9BA5B4),
+                          fontSize: 14,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _dialogLabel(String text) {
+    return Text(
+      text,
+      style: const TextStyle(
+        fontSize: 13,
+        fontWeight: FontWeight.w600,
+        color: Color(0xFF1B2D4F),
+      ),
+    );
+  }
+
+  Widget _dialogInput({
+    required TextEditingController controller,
+    required String hint,
+    required IconData icon,
+    TextInputType keyboardType = TextInputType.text,
+  }) {
+    return TextField(
+      controller: controller,
+      keyboardType: keyboardType,
+      style: const TextStyle(color: Color(0xFF1B2D4F), fontSize: 14),
+      decoration: InputDecoration(
+        hintText: hint,
+        hintStyle: const TextStyle(color: Colors.black26, fontSize: 13),
+        prefixIcon: Icon(icon, color: const Color(0xFF1B2D4F), size: 18),
+        filled: true,
+        fillColor: const Color(0xFFF8F9FB),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide(color: Colors.grey.shade200),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide(color: Colors.grey.shade200),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: Color(0xFF1B2D4F), width: 1.5),
+        ),
+      ),
+    );
+  }
+
+  // -------------------------------------------------------------
+  // Navigation
+  // -------------------------------------------------------------
+  void _onNavTap(int index) {
+    if (index == 1) {
+      Navigator.push(context,
+          MaterialPageRoute(builder: (context) => ProductsPage(role: widget.role)));
+      return;
+    }
+    if (index == 2) {
+      Navigator.push(context,
+          MaterialPageRoute(builder: (context) => const SalesPage()));
       return;
     }
     if (index == 3) {
@@ -52,8 +388,6 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() => _currentIndex = index);
   }
 
-  // ✅ REAL SCANNER — works on physical device
-  // For emulator testing, set usePhysicalDevice = false in api_config.dart
   Future<void> _onCameraPressed() async {
     final barcode = await Navigator.push<String>(
       context,
@@ -76,7 +410,6 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
-    // Show loading
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -86,22 +419,17 @@ class _HomeScreenState extends State<HomeScreen> {
     );
 
     try {
-    final url = '${ApiConfig.baseUrl}/product/scan/$barcode';
-    debugPrint('🔍 Calling: $url'); // ← add this
-    
-    final response = await http.get(
-      Uri.parse(url),
-      headers: {
-        'Authorization': 'Bearer $token',
-        'Content-Type': 'application/json',
-      },
-    );
-    
-    debugPrint('📦 Status: ${response.statusCode}'); // ← add this
-    debugPrint('📦 Body: ${response.body}'); // ← add this
+      final url = '${ApiConfig.baseUrl}/product/scan/$barcode';
+      final response = await http.get(
+        Uri.parse(url),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+      );
 
       if (!mounted) return;
-      Navigator.pop(context); // close loading
+      Navigator.pop(context);
 
       if (response.statusCode == 200) {
         final product = jsonDecode(response.body);
@@ -148,8 +476,7 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             Center(
               child: Container(
-                width: 40,
-                height: 4,
+                width: 40, height: 4,
                 decoration: BoxDecoration(
                   color: Colors.grey[300],
                   borderRadius: BorderRadius.circular(2),
@@ -160,8 +487,7 @@ class _HomeScreenState extends State<HomeScreen> {
             Text(
               product['product_Name'] ?? product['productName'] ?? 'Unknown',
               style: const TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.w800,
+                fontSize: 22, fontWeight: FontWeight.w800,
                 color: Color(0xFF1B2D4F),
               ),
             ),
@@ -174,29 +500,17 @@ class _HomeScreenState extends State<HomeScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                _statChip(
-                  Icons.inventory_2_outlined,
-                  'Stock',
-                  '${product['stock_Quantity'] ?? product['stockQuantity'] ?? 0}',
-                ),
-                _statChip(
-                  Icons.euro_rounded,
-                  'Price',
-                  '${product['price'] ?? 0}€',
-                ),
-                _statChip(
-                  Icons.tag_rounded,
-                  'ID',
-                  '#${product['product_ID'] ?? product['productId'] ?? ''}',
-                ),
+                _statChip(Icons.inventory_2_outlined, 'Stock',
+                    '${product['stock_Quantity'] ?? product['stockQuantity'] ?? 0}'),
+                _statChip(Icons.euro_rounded, 'Price', '${product['price'] ?? 0}€'),
+                _statChip(Icons.tag_rounded, 'ID',
+                    '#${product['product_ID'] ?? product['productId'] ?? ''}'),
               ],
             ),
             if ((product['description'] ?? '').toString().isNotEmpty) ...[
               const SizedBox(height: 16),
-              Text(
-                product['description'],
-                style: const TextStyle(color: Color(0xFF6B7280), fontSize: 13),
-              ),
+              Text(product['description'],
+                  style: const TextStyle(color: Color(0xFF6B7280), fontSize: 13)),
             ],
             const SizedBox(height: 24),
             SizedBox(
@@ -205,27 +519,15 @@ class _HomeScreenState extends State<HomeScreen> {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF1B2D4F),
                   padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                 ),
                 onPressed: () {
                   Navigator.pop(context);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => ProductsPage(role: widget.role),
-                    ),
-                  );
+                  Navigator.push(context,
+                      MaterialPageRoute(builder: (_) => ProductsPage(role: widget.role)));
                 },
-                child: const Text(
-                  'View All Products',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
+                child: const Text('View All Products',
+                    style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600)),
               ),
             ),
           ],
@@ -245,18 +547,11 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
           Icon(icon, color: const Color(0xFF1B2D4F), size: 20),
           const SizedBox(height: 6),
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w800,
-              color: Color(0xFF1B2D4F),
-            ),
-          ),
-          Text(
-            label,
-            style: const TextStyle(color: Color(0xFF9BA5B4), fontSize: 11),
-          ),
+          Text(value,
+              style: const TextStyle(
+                  fontSize: 16, fontWeight: FontWeight.w800, color: Color(0xFF1B2D4F))),
+          Text(label,
+              style: const TextStyle(color: Color(0xFF9BA5B4), fontSize: 11)),
         ],
       ),
     );
@@ -282,10 +577,7 @@ class _HomeScreenState extends State<HomeScreen> {
           _sheetHandle(),
           const SizedBox(height: 24),
           const Text('User',
-              style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF1B2D4F))),
+              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: Color(0xFF1B2D4F))),
           const SizedBox(height: 20),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -339,10 +631,7 @@ class _HomeScreenState extends State<HomeScreen> {
           _sheetHandle(),
           const SizedBox(height: 16),
           const Text('Admin',
-              style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF1B2D4F))),
+              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: Color(0xFF1B2D4F))),
           const SizedBox(height: 16),
           Flexible(
             child: GridView.count(
@@ -404,8 +693,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _sheetHandle() {
     return Container(
-      width: 40,
-      height: 4,
+      width: 40, height: 4,
       decoration: BoxDecoration(
         color: Colors.grey[300],
         borderRadius: BorderRadius.circular(2),
@@ -419,8 +707,7 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Column(
         children: [
           Container(
-            width: 60,
-            height: 60,
+            width: 60, height: 60,
             decoration: BoxDecoration(
               color: const Color(0xFFEEF2F7),
               borderRadius: BorderRadius.circular(14),
@@ -430,9 +717,7 @@ class _HomeScreenState extends State<HomeScreen> {
           const SizedBox(height: 8),
           Text(label,
               style: const TextStyle(
-                  fontSize: 12,
-                  color: Color(0xFF1B2D4F),
-                  fontWeight: FontWeight.w500)),
+                  fontSize: 12, color: Color(0xFF1B2D4F), fontWeight: FontWeight.w500)),
         ],
       ),
     );
@@ -457,107 +742,142 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FB),
       body: SafeArea(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Stack(
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('STOX',
-                      style: TextStyle(
-                          fontSize: 28,
-                          fontWeight: FontWeight.w800,
-                          color: Color(0xFF1B2D4F),
-                          letterSpacing: 1)),
-                  Container(
-                      height: 3,
-                      width: double.infinity,
-                      color: const Color(0xFF1B2D4F)),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-            Align(
-              alignment: Alignment.centerRight,
-              child: Container(
-                margin: const EdgeInsets.only(right: 24),
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(14),
-                  boxShadow: [
-                    BoxShadow(
-                        color: Colors.black.withOpacity(0.07),
-                        blurRadius: 10,
-                        offset: const Offset(0, 3))
-                  ],
+            // Main content
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('STOX',
+                          style: TextStyle(
+                              fontSize: 28, fontWeight: FontWeight.w800,
+                              color: Color(0xFF1B2D4F), letterSpacing: 1)),
+                      Container(height: 3, width: double.infinity,
+                          color: const Color(0xFF1B2D4F)),
+                    ],
+                  ),
                 ),
-                child: const Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Daily Sales',
-                        style: TextStyle(
-                            color: Color(0xFF9BA5B4),
-                            fontSize: 13,
-                            fontWeight: FontWeight.w500)),
-                    SizedBox(height: 4),
-                    Text('850€',
-                        style: TextStyle(
-                            color: Color(0xFF1B2D4F),
-                            fontSize: 24,
-                            fontWeight: FontWeight.w800)),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 24),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: const Color(0xFFE8EDF2)),
-                  boxShadow: [
-                    BoxShadow(
-                        color: Colors.black.withOpacity(0.04), blurRadius: 8)
-                  ],
-                ),
-                child: Column(
-                  children: [
-                    SizedBox(height: 220, child: _buildBarChart()),
-                    const SizedBox(height: 8),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Container(
-                            width: 12,
-                            height: 12,
-                            color: const Color(0xFF2D4169)),
-                        const SizedBox(width: 8),
-                        const Text('weekly sales',
-                            style: TextStyle(
-                                color: Color(0xFF6B7280), fontSize: 13)),
+                const SizedBox(height: 16),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: Container(
+                    margin: const EdgeInsets.only(right: 24),
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(14),
+                      boxShadow: [
+                        BoxShadow(color: Colors.black.withOpacity(0.07),
+                            blurRadius: 10, offset: const Offset(0, 3))
                       ],
                     ),
+                    child: const Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Daily Sales',
+                            style: TextStyle(color: Color(0xFF9BA5B4),
+                                fontSize: 13, fontWeight: FontWeight.w500)),
+                        SizedBox(height: 4),
+                        Text('850€',
+                            style: TextStyle(color: Color(0xFF1B2D4F),
+                                fontSize: 24, fontWeight: FontWeight.w800)),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: const Color(0xFFE8EDF2)),
+                      boxShadow: [
+                        BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 8)
+                      ],
+                    ),
+                    child: Column(
+                      children: [
+                        SizedBox(height: 220, child: _buildBarChart()),
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Container(width: 12, height: 12, color: const Color(0xFF2D4169)),
+                            const SizedBox(width: 8),
+                            const Text('weekly sales',
+                                style: TextStyle(color: Color(0xFF6B7280), fontSize: 13)),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    _dot(false),
+                    const SizedBox(width: 8),
+                    _dot(true),
+                    const SizedBox(width: 8),
+                    _dot(false),
                   ],
                 ),
-              ),
-            ),
-            const SizedBox(height: 20),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                _dot(false),
-                const SizedBox(width: 8),
-                _dot(true),
-                const SizedBox(width: 8),
-                _dot(false),
               ],
             ),
+
+            // ✅ RED ALERT BUTTON — bottom right, only when missing info
+            if (_hasMissingInfo && !_alertDismissed)
+              Positioned(
+                bottom: 16,
+                right: 16,
+                child: GestureDetector(
+                  onTap: _showCompleteProfileDialog,
+                  child: Container(
+                    width: 56,
+                    height: 56,
+                    decoration: BoxDecoration(
+                      color: Colors.red,
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.red.withOpacity(0.4),
+                          blurRadius: 12,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        const Icon(Icons.person_outline,
+                            color: Colors.white, size: 26),
+                        // Notification dot
+                        Positioned(
+                          top: 10,
+                          right: 10,
+                          child: Container(
+                            width: 10,
+                            height: 10,
+                            decoration: const BoxDecoration(
+                              color: Colors.yellow,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
           ],
         ),
       ),
@@ -582,9 +902,7 @@ class _HomeScreenState extends State<HomeScreen> {
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         color: active ? const Color(0xFF1B2D4F) : Colors.transparent,
-        border: active
-            ? null
-            : Border.all(color: const Color(0xFF1B2D4F), width: 1.5),
+        border: active ? null : Border.all(color: const Color(0xFF1B2D4F), width: 1.5),
       ),
     );
   }
@@ -637,8 +955,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     const SizedBox(height: 6),
                     Text(item['label'] as String,
-                        style: const TextStyle(
-                            fontSize: 10, color: Color(0xFF6B7280))),
+                        style: const TextStyle(fontSize: 10, color: Color(0xFF6B7280))),
                   ],
                 );
               }).toList(),

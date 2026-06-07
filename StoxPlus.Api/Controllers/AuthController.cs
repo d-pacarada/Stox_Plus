@@ -12,6 +12,7 @@ using MimeKit;
 using System.Security.Cryptography;
 using Server.Models.Requests;
 
+
 namespace Server.Controllers
 {
     [Route("api/[controller]")]
@@ -146,9 +147,7 @@ namespace Server.Controllers
                     Timestamp = DateTime.UtcNow
                 });
 
-                // 🔥 SAVE before querying role
                 await _context.SaveChangesAsync();
-
                 isNewUser = true;
             }
 
@@ -158,7 +157,6 @@ namespace Server.Controllers
                 .Select(ur => ur.Role.Role_Name)
                 .FirstOrDefaultAsync();
 
-            // 🔥 Safety fallback in case role still missing (e.g. legacy user with no role row)
             if (string.IsNullOrEmpty(role))
             {
                 var defaultRole = await _context.Role.FirstOrDefaultAsync(r => r.Role_Name == "User");
@@ -174,7 +172,7 @@ namespace Server.Controllers
                 }
                 else
                 {
-                    role = "User"; // last-resort default
+                    role = "User";
                 }
             }
 
@@ -227,33 +225,35 @@ namespace Server.Controllers
         }
 
         [HttpPost("refresh-token")]
-        public async Task<IActionResult> RefreshToken([FromBody] RefreshTokenRequest request)
+        public async Task<IActionResult> RefreshToken([FromBody] Server.Models.Requests.RefreshTokenRequest request)
         {
             var refreshToken = request.RefreshToken;
-
+        
             if (string.IsNullOrEmpty(refreshToken))
                 return BadRequest("The refreshToken field is required.");
-
+        
             var tokenInDb = await _context.RefreshTokens
                 .Include(r => r.User)
-                .FirstOrDefaultAsync(r => r.Token == refreshToken && r.Expires > DateTime.UtcNow && !r.IsRevoked);
-
+                .FirstOrDefaultAsync(r => r.Token == refreshToken
+                    && r.Expires > DateTime.UtcNow
+                    && !r.IsRevoked);
+        
             if (tokenInDb == null)
                 return Unauthorized("Invalid or expired refresh token.");
-
+        
             var role = await _context.UserRole
                 .Include(ur => ur.Role)
                 .Where(ur => ur.User_ID == tokenInDb.User_ID)
                 .Select(ur => ur.Role.Role_Name)
                 .FirstOrDefaultAsync();
-
+        
             tokenInDb.IsRevoked = true;
             var newRefreshToken = GenerateRefreshToken(tokenInDb.User_ID);
             _context.RefreshTokens.Add(newRefreshToken);
-
+        
             var newAccessToken = GenerateJwtToken(tokenInDb.User, role);
             await _context.SaveChangesAsync();
-
+        
             return Ok(new { token = newAccessToken, refreshToken = newRefreshToken.Token });
         }
 
@@ -282,7 +282,6 @@ namespace Server.Controllers
                 token.IsRevoked = true;
 
             await _context.SaveChangesAsync();
-
             return Ok("Logout logged and tokens revoked.");
         }
 
@@ -296,6 +295,7 @@ namespace Server.Controllers
             return Ok(new { exists });
         }
 
+        // ✅ UPDATED: Sends 6-digit code instead of link
         [HttpPost("forgot-password")]
         public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest request)
         {
@@ -304,58 +304,117 @@ namespace Server.Controllers
 
             var user = await _context.User.FirstOrDefaultAsync(u => u.Email == request.Email);
             if (user == null)
-                return Ok("If this email exists, a reset link has been sent.");
+                return Ok("If this email exists, a reset code has been sent.");
 
-            var token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
+            // Generate 6-digit code
+            var code = new Random().Next(100000, 999999).ToString();
 
-            _context.PasswordResetTokens.Add(new PasswordResetToken
+            // Invalidate old unused codes
+            var oldCodes = _context.PasswordResetCodes
+                .Where(c => c.User_ID == user.User_ID && !c.IsUsed);
+            _context.PasswordResetCodes.RemoveRange(oldCodes);
+
+            _context.PasswordResetCodes.Add(new PasswordResetCode
             {
                 User_ID = user.User_ID,
-                Token = token,
-                Expiration = DateTime.UtcNow.AddHours(1)
+                Code = code,
+                Expiration = DateTime.UtcNow.AddMinutes(10),
+                IsUsed = false
             });
 
             await _context.SaveChangesAsync();
 
-            var resetUrl = $"{_config["FrontendBaseUrl"]}/reset-password?token={Uri.EscapeDataString(token)}";
-
+            // Send email with code
             var message = new MimeMessage();
             message.From.Add(MailboxAddress.Parse(_config["EmailSettings:SenderEmail"]));
             message.To.Add(MailboxAddress.Parse(user.Email));
-            message.Subject = "Reset Your Password";
-            message.Body = new TextPart("plain")
+            message.Subject = "Your STOX Password Reset Code";
+            message.Body = new TextPart("html")
             {
-                Text = $"Hello,\n\nClick below to reset your password:\n{resetUrl}\n\nThis link will expire in 1 hour."
+                Text = $@"
+                    <div style='font-family: Arial, sans-serif; max-width: 420px; margin: 0 auto;'>
+                        <h2 style='color: #1B2D4F;'>STOX Password Reset</h2>
+                        <p style='color: #6B7280;'>Your password reset code is:</p>
+                        <div style='background: #EEF2F7; padding: 24px; text-align: center;
+                                    border-radius: 12px; margin: 20px 0;'>
+                            <h1 style='color: #1B2D4F; letter-spacing: 10px;
+                                       font-size: 40px; margin: 0;'>{code}</h1>
+                        </div>
+                        <p style='color: #9BA5B4; font-size: 13px;'>
+                            This code expires in <strong>10 minutes</strong>.
+                            Do not share it with anyone.
+                        </p>
+                    </div>"
             };
 
             using var smtp = new SmtpClient();
-            await smtp.ConnectAsync(_config["EmailSettings:SmtpServer"], int.Parse(_config["EmailSettings:Port"]), true);
-            await smtp.AuthenticateAsync(_config["EmailSettings:SenderEmail"], _config["EmailSettings:SenderPassword"]);
+            await smtp.ConnectAsync(
+                _config["EmailSettings:SmtpServer"],
+                int.Parse(_config["EmailSettings:Port"]),
+                true);
+            await smtp.AuthenticateAsync(
+                _config["EmailSettings:SenderEmail"],
+                _config["EmailSettings:SenderPassword"]);
             await smtp.SendAsync(message);
             await smtp.DisconnectAsync(true);
 
-            return Ok("If this email exists, a reset link has been sent.");
+            return Ok("Reset code sent to your email.");
         }
 
-        [HttpPost("reset-password")]
-        public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordRequest request)
+        // ✅ NEW: Verify 6-digit code
+        [HttpPost("verify-reset-code")]
+        public async Task<IActionResult> VerifyResetCode([FromBody] VerifyCodeRequest request)
         {
-            if (string.IsNullOrWhiteSpace(request.Token) || string.IsNullOrWhiteSpace(request.NewPassword))
-                return BadRequest("Token and new password are required.");
+            if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.Code))
+                return BadRequest("Email and code are required.");
 
-            var tokenEntry = await _context.PasswordResetTokens
-                .Include(t => t.User)
-                .FirstOrDefaultAsync(t => t.Token == request.Token && t.Expiration > DateTime.UtcNow);
+            var user = await _context.User.FirstOrDefaultAsync(u => u.Email == request.Email);
+            if (user == null)
+                return BadRequest("Invalid request.");
 
-            if (tokenEntry == null)
-                return BadRequest("Invalid or expired token.");
+            var resetCode = await _context.PasswordResetCodes
+                .FirstOrDefaultAsync(c =>
+                    c.User_ID == user.User_ID &&
+                    c.Code == request.Code &&
+                    !c.IsUsed &&
+                    c.Expiration > DateTime.UtcNow);
 
-            tokenEntry.User.Password = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
+            if (resetCode == null)
+                return BadRequest("Invalid or expired code.");
 
-            _context.PasswordResetTokens.Remove(tokenEntry);
+            return Ok(new { message = "Code verified.", email = request.Email });
+        }
+
+        // ✅ UPDATED: Reset password using email + code
+        [HttpPost("reset-password")]
+        public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordWithCodeRequest request)
+        {
+            if (string.IsNullOrWhiteSpace(request.Email) ||
+                string.IsNullOrWhiteSpace(request.Code) ||
+                string.IsNullOrWhiteSpace(request.NewPassword))
+                return BadRequest("All fields are required.");
+
+            var user = await _context.User.FirstOrDefaultAsync(u => u.Email == request.Email);
+            if (user == null)
+                return BadRequest("Invalid request.");
+
+            var resetCode = await _context.PasswordResetCodes
+                .FirstOrDefaultAsync(c =>
+                    c.User_ID == user.User_ID &&
+                    c.Code == request.Code &&
+                    !c.IsUsed &&
+                    c.Expiration > DateTime.UtcNow);
+
+            if (resetCode == null)
+                return BadRequest("Invalid or expired code.");
+
+            // Mark code as used and update password
+            resetCode.IsUsed = true;
+            user.Password = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
+
             await _context.SaveChangesAsync();
 
-            return Ok("Password reset successful.");
+            return Ok("Password reset successfully.");
         }
 
         private string GenerateJwtToken(User user, string role)
@@ -390,26 +449,22 @@ namespace Server.Controllers
         }
     }
 
-    // DTOs
+    // Keep these at bottom of AuthController.cs
     public class RegisterRequest
     {
-        public string BusinessName { get; set; }
-        public string BusinessNumber { get; set; }
-        public string Email { get; set; }
-        public string Phone { get; set; }
-        public string Address { get; set; }
-        public string Transit { get; set; }
-        public string Password { get; set; }
+        public string BusinessName { get; set; } = string.Empty;
+        public string BusinessNumber { get; set; } = string.Empty;
+        public string Email { get; set; } = string.Empty;
+        public string Phone { get; set; } = string.Empty;
+        public string Address { get; set; } = string.Empty;
+        public string Transit { get; set; } = string.Empty;
+        public string Password { get; set; } = string.Empty;
     }
-
+    
     public class LoginRequest
     {
-        public string Email { get; set; }
-        public string Password { get; set; }
+        public string Email { get; set; } = string.Empty;
+        public string Password { get; set; } = string.Empty;
     }
-
-    public class EmailCheckRequest
-    {
-        public string Email { get; set; }
-    }
+    
 }

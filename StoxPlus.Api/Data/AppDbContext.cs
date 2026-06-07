@@ -21,6 +21,7 @@ namespace Server.Data
         public DbSet<UserActivityLog> UserActivityLogs { get; set; }
         public DbSet<PasswordResetToken> PasswordResetTokens { get; set; }
         public DbSet<RefreshToken> RefreshTokens { get; set; }
+        public DbSet<PasswordResetCode> PasswordResetCodes { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -36,6 +37,12 @@ namespace Server.Data
                 .HasMany(p => p.PurchaseInvoiceItems)
                 .WithOne(i => i.PurchaseInvoice)
                 .HasForeignKey(i => i.PurchaseInvoice_ID)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<PasswordResetCode>()
+                .HasOne(p => p.User)
+                .WithMany()
+                .HasForeignKey(p => p.User_ID)
                 .OnDelete(DeleteBehavior.Cascade);
         }
     }
