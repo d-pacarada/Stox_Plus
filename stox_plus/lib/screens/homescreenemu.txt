@@ -4,7 +4,6 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import '../widgets/user_navbar.dart';
 import '../widgets/admin_navbar.dart';
-import '../config/api_config.dart';
 import 'login_screen.dart';
 import 'customers_page.dart';
 import 'products_page.dart';
@@ -17,6 +16,8 @@ import 'users_page.dart';
 import 'messages_page.dart';
 import 'admin_panel_page.dart';
 import 'scanner_screen.dart';
+import '../config/api_config.dart';
+
 
 class HomeScreen extends StatefulWidget {
   final String role;
@@ -52,15 +53,20 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() => _currentIndex = index);
   }
 
-  // ✅ REAL SCANNER — works on physical device
-  // For emulator testing, set usePhysicalDevice = false in api_config.dart
+  // ⚠️ EMULATOR TEST MODE
+  // Camera button skips scanner and uses a hardcoded barcode
+  // When on real device, swap to the commented version below
   Future<void> _onCameraPressed() async {
-    final barcode = await Navigator.push<String>(
-      context,
-      MaterialPageRoute(builder: (_) => const ScannerScreen()),
-    );
-    if (barcode == null) return;
-    await _handleScannedBarcode(barcode);
+    const String testBarcode = 'STX00000001'; // must match DB barcode
+    await _handleScannedBarcode(testBarcode);
+
+    // ── REAL DEVICE VERSION (uncomment when ready) ──
+    // final barcode = await Navigator.push<String>(
+    //   context,
+    //   MaterialPageRoute(builder: (_) => const ScannerScreen()),
+    // );
+    // if (barcode == null) return;
+    // await _handleScannedBarcode(barcode);
   }
 
   Future<void> _handleScannedBarcode(String barcode) async {
@@ -86,19 +92,15 @@ class _HomeScreenState extends State<HomeScreen> {
     );
 
     try {
-    final url = '${ApiConfig.baseUrl}/product/scan/$barcode';
-    debugPrint('🔍 Calling: $url'); // ← add this
-    
-    final response = await http.get(
-      Uri.parse(url),
-      headers: {
-        'Authorization': 'Bearer $token',
-        'Content-Type': 'application/json',
-      },
-    );
-    
-    debugPrint('📦 Status: ${response.statusCode}'); // ← add this
-    debugPrint('📦 Body: ${response.body}'); // ← add this
+      final response = await http.get(
+        // 10.0.2.2 = localhost on Android emulator
+        // Replace YOUR_PORT with your .NET port (check launchSettings.json)
+        Uri.parse('http://10.0.2.2:5115/api/product/scan/$barcode'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+      );
 
       if (!mounted) return;
       Navigator.pop(context); // close loading
@@ -123,7 +125,7 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     } catch (e) {
       if (!mounted) return;
-      Navigator.pop(context);
+      Navigator.pop(context); // close loading
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Could not connect to server: $e'),
@@ -146,6 +148,7 @@ class _HomeScreenState extends State<HomeScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Handle bar
             Center(
               child: Container(
                 width: 40,
@@ -157,6 +160,8 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
             const SizedBox(height: 20),
+
+            // Product name
             Text(
               product['product_Name'] ?? product['productName'] ?? 'Unknown',
               style: const TextStyle(
@@ -166,11 +171,15 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
             const SizedBox(height: 4),
+
+            // Category
             Text(
               product['category_Name'] ?? product['categoryName'] ?? '',
               style: const TextStyle(color: Color(0xFF9BA5B4), fontSize: 14),
             ),
             const SizedBox(height: 20),
+
+            // Stats row
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -191,6 +200,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ],
             ),
+
+            // Description (if exists)
             if ((product['description'] ?? '').toString().isNotEmpty) ...[
               const SizedBox(height: 16),
               Text(
@@ -198,7 +209,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 style: const TextStyle(color: Color(0xFF6B7280), fontSize: 13),
               ),
             ],
+
             const SizedBox(height: 24),
+
+            // View all products button
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
@@ -292,8 +306,12 @@ class _HomeScreenState extends State<HomeScreen> {
             children: [
               _moreItem(Icons.people_alt_outlined, 'Customers', () {
                 Navigator.pop(context);
-                Navigator.push(context,
-                    MaterialPageRoute(builder: (context) => CustomersPage(role: widget.role)));
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => CustomersPage(role: widget.role),
+                  ),
+                );
               }),
               _moreItem(Icons.add_box_outlined, 'Purchase', () {
                 Navigator.pop(context);
@@ -607,7 +625,8 @@ class _HomeScreenState extends State<HomeScreen> {
           crossAxisAlignment: CrossAxisAlignment.end,
           children: yLabels
               .map((l) => Text(l,
-                  style: const TextStyle(fontSize: 10, color: Color(0xFF9BA5B4))))
+                  style: const TextStyle(
+                      fontSize: 10, color: Color(0xFF9BA5B4))))
               .toList(),
         ),
         const SizedBox(width: 8),

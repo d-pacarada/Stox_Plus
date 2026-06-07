@@ -24,6 +24,9 @@ namespace Server.Models
         [Column(TypeName = "decimal(10, 2)")]
         public decimal Price { get; set; }
 
+        [MaxLength(100)]
+        public string? Barcode { get; set; }
+
         [ForeignKey("User")]
         public int User_ID { get; set; }
 

@@ -1,8 +1,8 @@
-// lib/screens/products_page.dart
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import '../config/api_config.dart';
 import '../widgets/user_navbar.dart';
 import '../widgets/admin_navbar.dart';
@@ -18,6 +18,7 @@ import 'users_page.dart';
 import 'messages_page.dart';
 import 'admin_panel_page.dart';
 import 'login_screen.dart';
+import 'scanner_screen.dart';
 
 class ProductsPage extends StatefulWidget {
   final String role;
@@ -36,29 +37,21 @@ class _ProductsPageState extends State<ProductsPage> {
   bool _isSortAscending = true;
 
   final Set<int> _expandedDescriptions = {};
+  final Set<int> _expandedQrCodes = {};
   int _visibleCount = 3;
   final int _loadIncrement = 3;
 
   final TextEditingController _searchController = TextEditingController();
   bool get isAdmin => widget.role == 'Admin';
 
-  // ════════════════════════════════════════════════════════════════════
-  // PER-USER LOCAL ID SYSTEM
-  // ────────────────────────────────────────────────────────────────────
-  // Her user için ayrı map: SharedPreferences key'i userId ile suffixed.
-  // Örn: User 5 → 'product_local_id_map_5'
-  // - Yeni product: max(map.values) + 1
-  // - Silinen product: map'ten kaldırılır
-  // ════════════════════════════════════════════════════════════════════
-
-  Map<int, int> _idMap = {}; // product_ID → localId
+  // Per-user local ID system
+  Map<int, int> _idMap = {};
   int? _currentUserId;
 
   String get _idMapKey => _currentUserId != null
       ? 'product_local_id_map_$_currentUserId'
       : 'product_local_id_map_anonymous';
 
-  /// JWT token'ı decode edip içindeki userId claim'ini çıkarır.
   int? _extractUserIdFromToken(String token) {
     try {
       final parts = token.split('.');
@@ -78,12 +71,7 @@ class _ProductsPageState extends State<ProductsPage> {
       final Map<String, dynamic> claims = jsonDecode(decoded);
 
       final candidates = [
-        'userId',
-        'user_id',
-        'userid',
-        'UserId',
-        'nameid',
-        'sub',
+        'userId', 'user_id', 'userid', 'UserId', 'nameid', 'sub',
         'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier',
       ];
 
@@ -104,9 +92,7 @@ class _ProductsPageState extends State<ProductsPage> {
 
   Future<void> _resolveCurrentUserId() async {
     if (_currentUserId != null) return;
-
     final prefs = await SharedPreferences.getInstance();
-
     final stored = prefs.getInt('user_ID') ??
         prefs.getInt('userId') ??
         prefs.getInt('userid');
@@ -114,7 +100,6 @@ class _ProductsPageState extends State<ProductsPage> {
       _currentUserId = stored;
       return;
     }
-
     final token = prefs.getString('token');
     if (token != null && token.isNotEmpty) {
       _currentUserId = _extractUserIdFromToken(token);
@@ -141,49 +126,41 @@ class _ProductsPageState extends State<ProductsPage> {
 
   int _nextLocalId() {
     if (_idMap.isEmpty) return 1;
-    final maxId = _idMap.values.reduce((a, b) => a > b ? a : b);
-    return maxId + 1;
+    return _idMap.values.reduce((a, b) => a > b ? a : b) + 1;
   }
 
   Future<void> _assignLocalIds(List<dynamic> products) async {
-  await _resolveCurrentUserId();
-  _idMap = await _loadIdMap();
-  bool changed = false;
+    await _resolveCurrentUserId();
+    _idMap = await _loadIdMap();
+    bool changed = false;
 
-  // 🔥 Backend'den gelen aktif product_ID'ler (DB'de var ve IsDeleted=false)
-  final activeIds = products
-      .map((p) => (p['product_ID'] ?? p['Product_ID'] ?? 0) as int)
-      .where((id) => id != 0)
-      .toSet();
+    final activeIds = products
+        .map((p) => (p['product_ID'] ?? p['Product_ID'] ?? 0) as int)
+        .where((id) => id != 0)
+        .toSet();
 
-  // 🔥 Orphan cleanup: map'te olup backend'den gelmeyenleri sil
-  // (DB'den manuel silinmiş veya soft-delete edilmiş ürünler)
-  final orphans =
-      _idMap.keys.where((k) => !activeIds.contains(k)).toList();
-  if (orphans.isNotEmpty) {
-    for (final k in orphans) {
-      _idMap.remove(k);
-    }
-    changed = true;
-  }
-
-  for (final p in products) {
-    final int productId =
-        (p['product_ID'] ?? p['Product_ID'] ?? 0) as int;
-    if (productId == 0) continue;
-
-    if (_idMap.containsKey(productId)) {
-      p['localId'] = _idMap[productId];
-    } else {
-      final newLocalId = _nextLocalId();
-      _idMap[productId] = newLocalId;
-      p['localId'] = newLocalId;
+    final orphans = _idMap.keys.where((k) => !activeIds.contains(k)).toList();
+    if (orphans.isNotEmpty) {
+      for (final k in orphans) _idMap.remove(k);
       changed = true;
     }
-  }
 
-  if (changed) await _saveIdMap();
-}
+    for (final p in products) {
+      final int productId = (p['product_ID'] ?? p['Product_ID'] ?? 0) as int;
+      if (productId == 0) continue;
+
+      if (_idMap.containsKey(productId)) {
+        p['localId'] = _idMap[productId];
+      } else {
+        final newLocalId = _nextLocalId();
+        _idMap[productId] = newLocalId;
+        p['localId'] = newLocalId;
+        changed = true;
+      }
+    }
+
+    if (changed) await _saveIdMap();
+  }
 
   Future<void> _removeFromIdMap(int productId) async {
     if (_idMap.containsKey(productId)) {
@@ -223,17 +200,14 @@ class _ProductsPageState extends State<ProductsPage> {
 
       if (response.statusCode == 200) {
         final List<dynamic> fetched = jsonDecode(response.body);
-
-        // 🔥 User'a özel localId ata
         await _assignLocalIds(fetched);
-
         setState(() {
           _allProducts = fetched;
           _filteredProducts = List.from(_allProducts);
           _visibleCount = 3;
           _expandedDescriptions.clear();
+          _expandedQrCodes.clear();
         });
-
         _applySort();
       } else {
         _showSnackBar('Failed to load products (${response.statusCode})');
@@ -249,8 +223,7 @@ class _ProductsPageState extends State<ProductsPage> {
   // Delete
   // -------------------------------------------------------------
   Future<void> _deleteProduct(dynamic product) async {
-    final int dbId =
-        (product['product_ID'] ?? product['Product_ID'] ?? 0) as int;
+    final int dbId = (product['product_ID'] ?? product['Product_ID'] ?? 0) as int;
     if (dbId == 0) return;
 
     try {
@@ -279,6 +252,168 @@ class _ProductsPageState extends State<ProductsPage> {
   }
 
   // -------------------------------------------------------------
+  // Scanner
+  // -------------------------------------------------------------
+  Future<void> _onCameraPressed() async {
+    final barcode = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(builder: (_) => const ScannerScreen()),
+    );
+    if (barcode == null) return;
+    await _handleScannedBarcode(barcode);
+  }
+
+  Future<void> _handleScannedBarcode(String barcode) async {
+    if (!mounted) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('token') ?? '';
+
+    if (token.isEmpty) {
+      _showSnackBar('Session expired. Please log in again.');
+      return;
+    }
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(
+        child: CircularProgressIndicator(color: Color(0xFF1B2D4F)),
+      ),
+    );
+
+    try {
+      final response = await http.get(
+        Uri.parse('${ApiConfig.baseUrl}/product/scan/$barcode'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+      );
+
+      if (!mounted) return;
+      Navigator.pop(context);
+
+      if (response.statusCode == 200) {
+        final product = jsonDecode(response.body);
+        _showScannedProductSheet(product);
+      } else if (response.statusCode == 404) {
+        _showSnackBar('Product not found for this barcode.');
+      } else {
+        _showSnackBar('Error: ${response.statusCode}');
+      }
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.pop(context);
+      _showSnackBar('Could not connect to server: $e');
+    }
+  }
+
+  void _showScannedProductSheet(Map<String, dynamic> product) {
+    final String name = (product['product_Name'] ?? product['productName'] ?? '').toString();
+    final String category = (product['category_Name'] ?? product['categoryName'] ?? '').toString();
+    final int stock = (product['stock_Quantity'] ?? product['stockQuantity'] ?? 0) as int;
+    final num price = (product['price'] ?? 0) as num;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => Padding(
+        padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40, height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text(name,
+              style: const TextStyle(
+                fontSize: 22, fontWeight: FontWeight.w800,
+                color: Color(0xFF1B2D4F),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(category,
+              style: const TextStyle(color: Color(0xFF9BA5B4), fontSize: 14),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                _statChip(Icons.inventory_2_outlined, 'Stock', '$stock'),
+                _statChip(Icons.euro_rounded, 'Price', '${price}€'),
+                _statChip(
+                  stock > 10 ? Icons.check_circle_outline : Icons.warning_amber_rounded,
+                  'Status',
+                  stock > 10 ? 'OK' : 'Low',
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF1B2D4F),
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+                onPressed: () => Navigator.pop(context),
+                child: const Text(
+                  'Close',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _statChip(IconData icon, String label, String value) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEEF2F7),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, color: const Color(0xFF1B2D4F), size: 20),
+          const SizedBox(height: 6),
+          Text(value,
+            style: const TextStyle(
+              fontSize: 16, fontWeight: FontWeight.w800,
+              color: Color(0xFF1B2D4F),
+            ),
+          ),
+          Text(label,
+            style: const TextStyle(color: Color(0xFF9BA5B4), fontSize: 11),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // -------------------------------------------------------------
   // Search & Sort
   // -------------------------------------------------------------
   void _runSearch(String query) {
@@ -288,16 +423,11 @@ class _ProductsPageState extends State<ProductsPage> {
     } else {
       final q = query.toLowerCase();
       results = _allProducts.where((p) {
-        final name = (p['product_Name'] ?? p['Product_Name'] ?? '')
-            .toString()
-            .toLowerCase();
-        final cat = (p['category_Name'] ?? p['Category_Name'] ?? '')
-            .toString()
-            .toLowerCase();
+        final name = (p['product_Name'] ?? p['Product_Name'] ?? '').toString().toLowerCase();
+        final cat = (p['category_Name'] ?? p['Category_Name'] ?? '').toString().toLowerCase();
         return name.contains(q) || cat.contains(q);
       }).toList();
     }
-
     setState(() {
       _filteredProducts = results;
       _visibleCount = 3;
@@ -319,22 +449,21 @@ class _ProductsPageState extends State<ProductsPage> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-          content: Text(message),
-          backgroundColor: isSuccess ? Colors.green : Colors.redAccent),
+        content: Text(message),
+        backgroundColor: isSuccess ? Colors.green : Colors.redAccent,
+      ),
     );
   }
 
   // -------------------------------------------------------------
-  // NAVIGATION
+  // Navigation
   // -------------------------------------------------------------
   void _handleNavTap(int index) {
     if (index == 1) return;
-
     if (index == 0) {
       Navigator.popUntil(context, (route) => route.isFirst);
       return;
     }
-
     if (index == 2) {
       Navigator.pushReplacement(
         context,
@@ -342,19 +471,11 @@ class _ProductsPageState extends State<ProductsPage> {
       );
       return;
     }
-
-    if (index == 3) {
-      _showMoreDrawer();
-    }
-  }
-
-  void _onCameraPressed() {
-    ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Camera scanner coming soon!')));
+    if (index == 3) _showMoreDrawer();
   }
 
   // -------------------------------------------------------------
-  // MORE DRAWER
+  // More Drawer
   // -------------------------------------------------------------
   void _showMoreDrawer() {
     showModalBottomSheet(
@@ -376,37 +497,25 @@ class _ProductsPageState extends State<ProductsPage> {
           _sheetHandle(),
           const SizedBox(height: 24),
           const Text('User',
-              style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF1B2D4F))),
+              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: Color(0xFF1B2D4F))),
           const SizedBox(height: 20),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
               _moreItem(Icons.people_alt_outlined, 'Customers', () {
                 Navigator.pop(context);
-                Navigator.pushReplacement(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) =>
-                        CustomersPage(role: widget.role),
-                  ),
-                );
+                Navigator.pushReplacement(context,
+                    MaterialPageRoute(builder: (context) => CustomersPage(role: widget.role)));
               }),
               _moreItem(Icons.add_box_outlined, 'Purchase', () {
                 Navigator.pop(context);
-                Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                        builder: (context) => const PurchasePage()));
+                Navigator.push(context,
+                    MaterialPageRoute(builder: (context) => const PurchasePage()));
               }),
               _moreItem(Icons.trending_up_rounded, 'Incomes', () {
                 Navigator.pop(context);
-                Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                        builder: (context) => const IncomesPage()));
+                Navigator.push(context,
+                    MaterialPageRoute(builder: (context) => const IncomesPage()));
               }),
             ],
           ),
@@ -416,17 +525,13 @@ class _ProductsPageState extends State<ProductsPage> {
             children: [
               _moreItem(Icons.mail_outline_rounded, 'Contact Us', () {
                 Navigator.pop(context);
-                Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                        builder: (context) => const ContactPage()));
+                Navigator.push(context,
+                    MaterialPageRoute(builder: (context) => const ContactPage()));
               }),
               _moreItem(Icons.settings_outlined, 'Settings', () {
                 Navigator.pop(context);
-                Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                        builder: (context) => const SettingsPage()));
+                Navigator.push(context,
+                    MaterialPageRoute(builder: (context) => const SettingsPage()));
               }),
               _moreItem(Icons.logout_rounded, 'Logout', _logout),
             ],
@@ -445,14 +550,8 @@ class _ProductsPageState extends State<ProductsPage> {
         children: [
           _sheetHandle(),
           const SizedBox(height: 16),
-          const Text(
-            'Admin',
-            style: TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.w700,
-              color: Color(0xFF1B2D4F),
-            ),
-          ),
+          const Text('Admin',
+              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: Color(0xFF1B2D4F))),
           const SizedBox(height: 16),
           Flexible(
             child: GridView.count(
@@ -463,67 +562,45 @@ class _ProductsPageState extends State<ProductsPage> {
               mainAxisSpacing: 16,
               childAspectRatio: 0.95,
               children: [
-                _moreItem(Icons.admin_panel_settings_outlined, 'Admin Panel',
-                    () {
+                _moreItem(Icons.admin_panel_settings_outlined, 'Admin Panel', () {
                   Navigator.pop(context);
-                  Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (context) => const AdminPanelPage()));
+                  Navigator.push(context,
+                      MaterialPageRoute(builder: (context) => const AdminPanelPage()));
                 }),
                 _moreItem(Icons.people_alt_outlined, 'Customers', () {
                   Navigator.pop(context);
-                  Navigator.pushReplacement(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) =>
-                          CustomersPage(role: widget.role),
-                    ),
-                  );
+                  Navigator.pushReplacement(context,
+                      MaterialPageRoute(builder: (context) => CustomersPage(role: widget.role)));
                 }),
-                _moreItem(Icons.supervised_user_circle_outlined, 'Users',
-                    () {
+                _moreItem(Icons.supervised_user_circle_outlined, 'Users', () {
                   Navigator.pop(context);
-                  Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (context) => const UsersPage()));
+                  Navigator.push(context,
+                      MaterialPageRoute(builder: (context) => const UsersPage()));
                 }),
-                _moreItem(Icons.chat_bubble_outline_rounded, 'Messages',
-                    () {
+                _moreItem(Icons.chat_bubble_outline_rounded, 'Messages', () {
                   Navigator.pop(context);
-                  Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (context) => const MessagesPage()));
+                  Navigator.push(context,
+                      MaterialPageRoute(builder: (context) => const MessagesPage()));
                 }),
                 _moreItem(Icons.add_box_outlined, 'Purchase', () {
                   Navigator.pop(context);
-                  Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (context) => const PurchasePage()));
+                  Navigator.push(context,
+                      MaterialPageRoute(builder: (context) => const PurchasePage()));
                 }),
                 _moreItem(Icons.trending_up_rounded, 'Incomes', () {
                   Navigator.pop(context);
-                  Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (context) => const IncomesPage()));
+                  Navigator.push(context,
+                      MaterialPageRoute(builder: (context) => const IncomesPage()));
                 }),
                 _moreItem(Icons.mail_outline_rounded, 'Contact Us', () {
                   Navigator.pop(context);
-                  Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (context) => const ContactPage()));
+                  Navigator.push(context,
+                      MaterialPageRoute(builder: (context) => const ContactPage()));
                 }),
                 _moreItem(Icons.settings_outlined, 'Settings', () {
                   Navigator.pop(context);
-                  Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (context) => const SettingsPage()));
+                  Navigator.push(context,
+                      MaterialPageRoute(builder: (context) => const SettingsPage()));
                 }),
                 _moreItem(Icons.logout_rounded, 'Logout', _logout),
               ],
@@ -536,8 +613,7 @@ class _ProductsPageState extends State<ProductsPage> {
 
   Widget _sheetHandle() {
     return Container(
-      width: 40,
-      height: 4,
+      width: 40, height: 4,
       decoration: BoxDecoration(
         color: Colors.grey[300],
         borderRadius: BorderRadius.circular(2),
@@ -551,8 +627,7 @@ class _ProductsPageState extends State<ProductsPage> {
       child: Column(
         children: [
           Container(
-            width: 60,
-            height: 60,
+            width: 60, height: 60,
             decoration: BoxDecoration(
               color: const Color(0xFFEEF2F7),
               borderRadius: BorderRadius.circular(14),
@@ -562,9 +637,7 @@ class _ProductsPageState extends State<ProductsPage> {
           const SizedBox(height: 8),
           Text(label,
               style: const TextStyle(
-                  fontSize: 12,
-                  color: Color(0xFF1B2D4F),
-                  fontWeight: FontWeight.w500)),
+                  fontSize: 12, color: Color(0xFF1B2D4F), fontWeight: FontWeight.w500)),
         ],
       ),
     );
@@ -591,7 +664,7 @@ class _ProductsPageState extends State<ProductsPage> {
   }
 
   // -------------------------------------------------------------
-  // BUILD
+  // Build
   // -------------------------------------------------------------
   @override
   Widget build(BuildContext context) {
@@ -610,33 +683,24 @@ class _ProductsPageState extends State<ProductsPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'STOX',
-                    style: TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF1B2D4F),
-                        letterSpacing: 1),
-                  ),
+                  const Text('STOX',
+                      style: TextStyle(
+                          fontSize: 28, fontWeight: FontWeight.w800,
+                          color: Color(0xFF1B2D4F), letterSpacing: 1)),
                   const SizedBox(height: 4),
-                  Container(
-                      height: 3,
-                      width: double.infinity,
-                      color: const Color(0xFF1B2D4F)),
+                  Container(height: 3, width: double.infinity, color: const Color(0xFF1B2D4F)),
                 ],
               ),
             ),
             Padding(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
               child: Row(
                 children: [
                   Expanded(
                     child: _isSearching
                         ? Container(
                             height: 40,
-                            padding:
-                                const EdgeInsets.symmetric(horizontal: 8),
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
                             decoration: BoxDecoration(
                                 color: Colors.white,
                                 borderRadius: BorderRadius.circular(8)),
@@ -659,10 +723,8 @@ class _ProductsPageState extends State<ProductsPage> {
                             ),
                           )
                         : GestureDetector(
-                            onTap: () =>
-                                setState(() => _isSearching = true),
-                            child:
-                                _buildActionButton(Icons.search, 'search'),
+                            onTap: () => setState(() => _isSearching = true),
+                            child: _buildActionButton(Icons.search, 'search'),
                           ),
                   ),
                   const SizedBox(width: 16),
@@ -672,9 +734,7 @@ class _ProductsPageState extends State<ProductsPage> {
                       _applySort();
                     },
                     child: _buildActionButton(
-                        _isSortAscending
-                            ? Icons.arrow_upward
-                            : Icons.arrow_downward,
+                        _isSortAscending ? Icons.arrow_upward : Icons.arrow_downward,
                         'sort ID ${_isSortAscending ? "(1-N)" : "(N-1)"}'),
                   ),
                 ],
@@ -688,70 +748,52 @@ class _ProductsPageState extends State<ProductsPage> {
                 child: ElevatedButton(
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF1B2D4F),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                   ),
                   onPressed: () async {
                     final result = await Navigator.push(
                       context,
-                      MaterialPageRoute(
-                          builder: (context) => const AddProductPage()),
+                      MaterialPageRoute(builder: (context) => const AddProductPage()),
                     );
                     if (result == true) _fetchUserProducts();
                   },
                   child: const Text('Add Product',
-                      style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold)),
+                      style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
                 ),
               ),
             ),
             const SizedBox(height: 16),
             Expanded(
               child: _isLoading
-                  ? const Center(
-                      child: CircularProgressIndicator(
-                          color: Color(0xFF1B2D4F)))
+                  ? const Center(child: CircularProgressIndicator(color: Color(0xFF1B2D4F)))
                   : _filteredProducts.isEmpty
                       ? const Center(
                           child: Text('No products found.',
                               style: TextStyle(color: Color(0xFF1B2D4F))))
                       : ListView.builder(
-                          padding:
-                              const EdgeInsets.symmetric(horizontal: 24),
+                          padding: const EdgeInsets.symmetric(horizontal: 24),
                           itemCount: dynamicItemCount,
                           itemBuilder: (context, index) {
                             if (index == _visibleCount) {
                               return Padding(
-                                padding: const EdgeInsets.only(
-                                    bottom: 24, top: 8),
+                                padding: const EdgeInsets.only(bottom: 24, top: 8),
                                 child: TextButton(
                                   style: TextButton.styleFrom(
-                                    foregroundColor:
-                                        const Color(0xFF1B2D4F),
-                                    backgroundColor:
-                                        const Color(0xFFEEF2F7),
-                                    padding: const EdgeInsets.symmetric(
-                                        vertical: 12),
+                                    foregroundColor: const Color(0xFF1B2D4F),
+                                    backgroundColor: const Color(0xFFEEF2F7),
+                                    padding: const EdgeInsets.symmetric(vertical: 12),
                                     shape: RoundedRectangleBorder(
-                                        borderRadius:
-                                            BorderRadius.circular(8)),
+                                        borderRadius: BorderRadius.circular(8)),
                                   ),
                                   onPressed: () {
-                                    setState(() {
-                                      _visibleCount += _loadIncrement;
-                                    });
+                                    setState(() => _visibleCount += _loadIncrement);
                                   },
                                   child: const Text('Load More...',
-                                      style: TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 15)),
+                                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
                                 ),
                               );
                             }
-                            final product = _filteredProducts[index];
-                            return _buildProductCard(product);
+                            return _buildProductCard(_filteredProducts[index]);
                           },
                         ),
             ),
@@ -759,16 +801,8 @@ class _ProductsPageState extends State<ProductsPage> {
         ),
       ),
       bottomNavigationBar: isAdmin
-          ? AdminNavBar(
-              currentIndex: 1,
-              onTap: _handleNavTap,
-              onCameraPressed: _onCameraPressed,
-            )
-          : UserNavBar(
-              currentIndex: 1,
-              onTap: _handleNavTap,
-              onCameraPressed: _onCameraPressed,
-            ),
+          ? AdminNavBar(currentIndex: 1, onTap: _handleNavTap, onCameraPressed: _onCameraPressed)
+          : UserNavBar(currentIndex: 1, onTap: _handleNavTap, onCameraPressed: _onCameraPressed),
     );
   }
 
@@ -778,10 +812,7 @@ class _ProductsPageState extends State<ProductsPage> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(8),
         boxShadow: [
-          BoxShadow(
-              color: Colors.black.withOpacity(0.08),
-              blurRadius: 6,
-              offset: const Offset(0, 3))
+          BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 6, offset: const Offset(0, 3))
         ],
       ),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -792,9 +823,7 @@ class _ProductsPageState extends State<ProductsPage> {
           const SizedBox(width: 6),
           Text(text,
               style: const TextStyle(
-                  color: Color(0xFF1B2D4F),
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14)),
+                  color: Color(0xFF1B2D4F), fontWeight: FontWeight.bold, fontSize: 14)),
         ],
       ),
     );
@@ -804,23 +833,18 @@ class _ProductsPageState extends State<ProductsPage> {
   // Product Card
   // -------------------------------------------------------------
   Widget _buildProductCard(dynamic product) {
-    final int productId =
-        product['product_ID'] ?? product['Product_ID'] ?? 0;
+    final int productId = product['product_ID'] ?? product['Product_ID'] ?? 0;
     final int displayId = product['localId'] ?? 0;
-    final String name =
-        (product['product_Name'] ?? product['Product_Name'] ?? '').toString();
-    final String description =
-        (product['description'] ?? product['Description'] ?? '').toString();
-    final String category =
-        (product['category_Name'] ?? product['Category_Name'] ?? '-')
-            .toString();
-    final int stock = (product['stock_Quantity'] ??
-            product['Stock_Quantity'] ??
-            0) as int;
+    final String name = (product['product_Name'] ?? product['Product_Name'] ?? '').toString();
+    final String description = (product['description'] ?? product['Description'] ?? '').toString();
+    final String category = (product['category_Name'] ?? product['Category_Name'] ?? '-').toString();
+    final int stock = (product['stock_Quantity'] ?? product['Stock_Quantity'] ?? 0) as int;
     final num priceNum = (product['price'] ?? product['Price'] ?? 0) as num;
     final String priceText = _formatPrice(priceNum);
+    final String barcode = (product['barcode'] ?? product['Barcode'] ?? '').toString();
 
     final bool isExpanded = _expandedDescriptions.contains(productId);
+    final bool isQrExpanded = _expandedQrCodes.contains(productId);
     final bool isLongDescription = description.length > 40;
     final String shownDescription = (!isLongDescription || isExpanded)
         ? description
@@ -830,8 +854,7 @@ class _ProductsPageState extends State<ProductsPage> {
       margin: const EdgeInsets.only(bottom: 14),
       decoration: BoxDecoration(
         color: Colors.white,
-        border: Border.all(
-            color: const Color(0xFF1B2D4F).withOpacity(0.3), width: 1),
+        border: Border.all(color: const Color(0xFF1B2D4F).withOpacity(0.3), width: 1),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Padding(
@@ -839,18 +862,18 @@ class _ProductsPageState extends State<ProductsPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Product name + ID
             Text(
               'ID: $displayId - $name',
               style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF1B2D4F)),
+                  fontSize: 18, fontWeight: FontWeight.w800, color: Color(0xFF1B2D4F)),
             ),
             const SizedBox(height: 4),
+
+            // Description
             RichText(
               text: TextSpan(
-                style: const TextStyle(
-                    fontSize: 13, color: Color(0xFF1B2D4F)),
+                style: const TextStyle(fontSize: 13, color: Color(0xFF1B2D4F)),
                 children: [
                   const TextSpan(
                       text: 'Description: ',
@@ -883,6 +906,8 @@ class _ProductsPageState extends State<ProductsPage> {
                 ),
               ),
             const SizedBox(height: 8),
+
+            // Category, Stock, Price row
             Row(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
@@ -895,17 +920,79 @@ class _ProductsPageState extends State<ProductsPage> {
                     ],
                   ),
                 ),
-                Text(
-                  priceText,
-                  style: const TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w800,
-                    color: Color(0xFF1B2D4F),
-                  ),
-                ),
+                Text(priceText,
+                    style: const TextStyle(
+                        fontSize: 22, fontWeight: FontWeight.w800, color: Color(0xFF1B2D4F))),
               ],
             ),
             const SizedBox(height: 10),
+
+            // QR Code toggle button
+            if (barcode.isNotEmpty)
+              GestureDetector(
+                onTap: () {
+                  setState(() {
+                    if (isQrExpanded) {
+                      _expandedQrCodes.remove(productId);
+                    } else {
+                      _expandedQrCodes.add(productId);
+                    }
+                  });
+                },
+                child: Row(
+                  children: [
+                    Icon(
+                      isQrExpanded ? Icons.qr_code : Icons.qr_code_2_outlined,
+                      size: 16,
+                      color: const Color(0xFF1B2D4F),
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      isQrExpanded ? 'Hide QR Code' : 'Show QR Code',
+                      style: const TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF1B2D4F),
+                          decoration: TextDecoration.underline,
+                          fontWeight: FontWeight.w600),
+                    ),
+                  ],
+                ),
+              ),
+
+            // QR Code display (expandable)
+            if (isQrExpanded && barcode.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Center(
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    border: Border.all(color: const Color(0xFF1B2D4F).withOpacity(0.2)),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(
+                    children: [
+                      QrImageView(
+                        data: barcode,
+                        version: QrVersions.auto,
+                        size: 160.0,
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        barcode,
+                        style: const TextStyle(
+                            fontSize: 11,
+                            color: Color(0xFF9BA5B4),
+                            letterSpacing: 1.5),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+            ],
+
+            // Edit / Delete buttons
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
@@ -913,8 +1000,7 @@ class _ProductsPageState extends State<ProductsPage> {
                   final result = await Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) =>
-                          EditProductPage(product: product),
+                      builder: (context) => EditProductPage(product: product),
                     ),
                   );
                   if (result == true) _fetchUserProducts();
@@ -932,9 +1018,7 @@ class _ProductsPageState extends State<ProductsPage> {
   }
 
   String _formatPrice(num value) {
-    if (value == value.toInt()) {
-      return '${value.toInt()}€';
-    }
+    if (value == value.toInt()) return '${value.toInt()}€';
     return '${value.toStringAsFixed(2)}€';
   }
 
@@ -943,9 +1027,7 @@ class _ProductsPageState extends State<ProductsPage> {
       text: TextSpan(
         style: const TextStyle(fontSize: 13, color: Color(0xFF1B2D4F)),
         children: [
-          TextSpan(
-              text: '$label: ',
-              style: const TextStyle(fontWeight: FontWeight.bold)),
+          TextSpan(text: '$label: ', style: const TextStyle(fontWeight: FontWeight.bold)),
           TextSpan(text: value),
         ],
       ),
@@ -960,15 +1042,11 @@ class _ProductsPageState extends State<ProductsPage> {
         style: ElevatedButton.styleFrom(
           backgroundColor: color,
           padding: EdgeInsets.zero,
-          shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(6)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
         ),
         onPressed: onPressed,
         child: Text(text,
-            style: const TextStyle(
-                color: Colors.white,
-                fontSize: 13,
-                fontWeight: FontWeight.bold)),
+            style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
       ),
     );
   }
@@ -979,20 +1057,15 @@ class _ProductsPageState extends State<ProductsPage> {
       builder: (BuildContext context) {
         return AlertDialog(
           title: const Text('Confirm Delete',
-              style: TextStyle(
-                  color: Color(0xFF1B2D4F), fontWeight: FontWeight.bold)),
-          content:
-              const Text('Are you sure you want to delete this product?'),
+              style: TextStyle(color: Color(0xFF1B2D4F), fontWeight: FontWeight.bold)),
+          content: const Text('Are you sure you want to delete this product?'),
           actions: [
             TextButton(
-                child: const Text('Cancel',
-                    style: TextStyle(color: Colors.grey)),
+                child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
                 onPressed: () => Navigator.of(context).pop()),
             TextButton(
               child: const Text('Delete',
-                  style: TextStyle(
-                      color: Color(0xFFD30000),
-                      fontWeight: FontWeight.bold)),
+                  style: TextStyle(color: Color(0xFFD30000), fontWeight: FontWeight.bold)),
               onPressed: () {
                 Navigator.of(context).pop();
                 _deleteProduct(product);

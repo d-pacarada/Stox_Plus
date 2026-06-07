@@ -12,74 +12,71 @@ class AdminNavBar extends StatelessWidget {
     required this.onCameraPressed,
   });
 
- @override
-Widget build(BuildContext context) {
-  return Container(
-    decoration: BoxDecoration(
-      color: Colors.white,
-      boxShadow: [
-        BoxShadow(
-          color: Colors.black.withOpacity(0.08),
-          blurRadius: 12,
-          offset: const Offset(0, -2),
-        ),
-      ],
-    ),
-    // SafeArea'yı buraya alıyoruz ki alt bar cihazın altındaki çizgiyi kurtarsın 
-    // ama üstteki taşmayı kırpmasın
-    child: SafeArea(
-      // clipBehavior ekleyerek taşmalara izin veriyoruz
-      child: SizedBox(
-        height: 70,
-        child: Stack(
-          clipBehavior: Clip.none, // 1. KRİTİK ADIM: Taşmayı görünür yapar
-          alignment: Alignment.center,
-          children: [
-            // Nav items
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: [
-                _navItem(0, Icons.bar_chart_rounded, 'Overview'),
-                _navItem(1, Icons.inbox_rounded, 'Products'),
-                const SizedBox(width: 64), 
-                _navItem(2, Icons.shopping_cart_outlined, 'Sales'),
-                _navItem(3, Icons.menu_rounded, 'More'),
-              ],
-            ),
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.08),
+            blurRadius: 12,
+            offset: const Offset(0, -2),
+          ),
+        ],
+      ),
+      child: SafeArea(
+        child: SizedBox(
+          height: 70,
+          child: Stack(
+            clipBehavior: Clip.none, // Allows camera button to overflow upward
+            alignment: Alignment.center,
+            children: [
+              // Nav items
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  _navItem(0, Icons.bar_chart_rounded, 'Overview'),
+                  _navItem(1, Icons.inbox_rounded, 'Products'),
+                  const SizedBox(width: 64), // Space for center camera button
+                  _navItem(2, Icons.shopping_cart_outlined, 'Sales'),
+                  _navItem(3, Icons.menu_rounded, 'More'),
+                ],
+              ),
 
-            // Camera button (center)
-            Positioned(
-              top: -24, // 2. ADIM: Butonun tam ortalanması için değeri biraz daha yukarı çekebilirsiniz (-24 idealdir)
-              child: GestureDetector(
-                onTap: onCameraPressed,
-                child: Container(
-                  width: 64,
-                  height: 64,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF1B2D4F),
-                    borderRadius: BorderRadius.circular(18),
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFF1B2D4F).withOpacity(0.3),
-                        blurRadius: 12,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  child: const Icon(
-                    Icons.camera_alt_outlined,
-                    color: Colors.white,
-                    size: 28,
+              // Center camera button (floats above navbar)
+              Positioned(
+                top: -24,
+                child: GestureDetector(
+                  onTap: onCameraPressed,
+                  child: Container(
+                    width: 64,
+                    height: 64,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1B2D4F),
+                      borderRadius: BorderRadius.circular(18),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFF1B2D4F).withOpacity(0.3),
+                          blurRadius: 12,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: const Icon(
+                      Icons.camera_alt_outlined,
+                      color: Colors.white,
+                      size: 28,
+                    ),
                   ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
-    ),
-  );
-}
+    );
+  }
 
   Widget _navItem(int index, IconData icon, String label) {
     final isSelected = currentIndex == index;

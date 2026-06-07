@@ -59,7 +59,8 @@ namespace Server.Controllers
                     Category_ID = p.Category_ID,
                     Category_Name = p.Category.Category_Name,
                     p.Stock_Quantity,
-                    p.Price
+                    p.Price,
+                    p.Barcode  // ✅ add this
                 })
                 .ToListAsync();
         
@@ -88,25 +89,55 @@ namespace Server.Controllers
             var userIdString = User.FindFirst("userId")?.Value;
             if (string.IsNullOrEmpty(userIdString))
                 return Unauthorized("User ID not found in token.");
-        
+
             product.User_ID = int.Parse(userIdString);
-        
+
             if (!await _context.Category.AnyAsync(c => c.Category_ID == product.Category_ID))
                 return BadRequest("Invalid Category ID.");
-        
+
+            // ✅ Auto-generate unique barcode
+            product.Barcode = "STX" + DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
             _context.Product.Add(product);
-        
-            // ✅ Log "Created Product"
+
             _context.UserActivityLogs.Add(new UserActivityLog
             {
                 UserId = product.User_ID,
                 Action = "Created Product",
                 Timestamp = DateTime.UtcNow
             });
-        
+
             await _context.SaveChangesAsync();
-        
             return Ok(product);
+        }
+
+        // ✅ NEW: Scan endpoint
+        [HttpGet("scan/{barcode}")]
+        [Authorize]
+        public async Task<IActionResult> GetByBarcode(string barcode)
+        {
+            var userIdString = User.FindFirst("userId")?.Value;
+            if (string.IsNullOrEmpty(userIdString))
+                return Unauthorized();
+
+            int userId = int.Parse(userIdString);
+
+            var product = await _context.Product
+                .Include(p => p.Category)
+                .FirstOrDefaultAsync(p => p.Barcode == barcode && p.User_ID == userId && !p.IsDeleted);
+
+            if (product == null)
+                return NotFound(new { message = "Product not found" });
+
+            return Ok(new {
+                product.Product_ID,
+                product.Product_Name,
+                product.Description,
+                product.Stock_Quantity,
+                product.Price,
+                product.Barcode,
+                Category_Name = product.Category.Category_Name
+            });
         }
 
         [HttpPut("{id}")]
@@ -122,6 +153,7 @@ namespace Server.Controllers
             product.Category_ID = updatedProduct.Category_ID;
             product.Stock_Quantity = updatedProduct.Stock_Quantity;
             product.Price = updatedProduct.Price;
+            
 
             await _context.SaveChangesAsync();
 
