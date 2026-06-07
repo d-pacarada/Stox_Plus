@@ -354,7 +354,7 @@ class _CustomersPageState extends State<CustomersPage> {
     if (index == 2) {
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => const SalesPage()),
+        MaterialPageRoute(builder: (context) => SalesPage(role: widget.role)),
       );
     }
   }

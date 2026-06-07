@@ -176,7 +176,7 @@ class _SettingsPageState extends State<SettingsPage> {
     if (index == 2) {
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => const SalesPage()),
+        MaterialPageRoute(builder: (_) => SalesPage(role: 'User'))
       );
       return;
     }

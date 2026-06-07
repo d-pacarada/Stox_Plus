@@ -1,24 +1,1254 @@
-// lib/screens/sales_page.dart
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:open_file/open_file.dart';
+import '../config/api_config.dart';
+import '../widgets/user_navbar.dart';
+import '../widgets/admin_navbar.dart';
+import 'home_screen.dart';
+import 'products_page.dart';
+import 'customers_page.dart';
+import 'purchase_page.dart';
+import 'incomes_page.dart';
+import 'contact_page.dart';
+import 'settings_page.dart';
+import 'users_page.dart';
+import 'messages_page.dart';
+import 'admin_panel_page.dart';
+import 'login_screen.dart';
+import 'scanner_screen.dart';
 
-class SalesPage extends StatelessWidget {
-  const SalesPage({super.key});
+class SalesPage extends StatefulWidget {
+  final String role;
+  const SalesPage({super.key, required this.role});
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFEAF6FD),
-      appBar: AppBar(
-        title: const Text('Sales (Incomes)', style: TextStyle(color: Color(0xFF1B2D4F), fontWeight: FontWeight.bold)),
+  State<SalesPage> createState() => _SalesPageState();
+}
+
+class _SalesPageState extends State<SalesPage> {
+  List<dynamic> _invoices = [];
+  List<dynamic> _customers = [];
+  List<dynamic> _products = [];
+  bool _isLoading = true;
+  bool get isAdmin => widget.role == 'Admin';
+
+  int _visibleCount = 3;
+  final int _loadIncrement = 3;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchAll();
+  }
+
+  Future<String?> _getToken() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('token');
+  }
+
+  Future<void> _fetchAll() async {
+    setState(() => _isLoading = true);
+    await Future.wait([_fetchInvoices(), _fetchCustomers(), _fetchProducts()]);
+    if (mounted) setState(() => _isLoading = false);
+  }
+
+  Future<void> _fetchInvoices() async {
+    try {
+      final token = await _getToken();
+      final response = await http.get(
+        Uri.parse('${ApiConfig.baseUrl}/invoice/user'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as List;
+        // Sort by date descending
+        data.sort((a, b) {
+          final dateA = DateTime.tryParse(a['invoice_Date'] ?? '') ?? DateTime(0);
+          final dateB = DateTime.tryParse(b['invoice_Date'] ?? '') ?? DateTime(0);
+          return dateB.compareTo(dateA);
+        });
+        if (mounted) setState(() => _invoices = data);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _fetchCustomers() async {
+    try {
+      final token = await _getToken();
+      final response = await http.get(
+        Uri.parse('${ApiConfig.baseUrl}/customer/user'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      if (response.statusCode == 200) {
+        if (mounted) setState(() => _customers = jsonDecode(response.body));
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _fetchProducts() async {
+    try {
+      final token = await _getToken();
+      final response = await http.get(
+        Uri.parse('${ApiConfig.baseUrl}/product/user'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      if (response.statusCode == 200) {
+        if (mounted) setState(() => _products = jsonDecode(response.body));
+      }
+    } catch (_) {}
+  }
+
+  // -------------------------------------------------------------
+  // View Invoice Details
+  // -------------------------------------------------------------
+  Future<void> _viewInvoiceDetails(dynamic invoice) async {
+    final token = await _getToken();
+    final invoiceId = invoice['invoice_ID'];
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator(color: Color(0xFF1B2D4F))),
+    );
+
+    try {
+      final response = await http.get(
+        Uri.parse('${ApiConfig.baseUrl}/invoice/details/$invoiceId'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+
+      if (!mounted) return;
+      Navigator.pop(context);
+
+      if (response.statusCode == 200) {
+        final items = jsonDecode(response.body) as List;
+        _showDetailsDialog(invoice, items);
+      }
+    } catch (_) {
+      if (mounted) Navigator.pop(context);
+    }
+  }
+
+  void _showDetailsDialog(dynamic invoice, List items) {
+    showDialog(
+      context: context,
+      builder: (_) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         backgroundColor: Colors.white,
-        elevation: 0,
-        iconTheme: const IconThemeData(color: Color(0xFF1B2D4F)),
-      ),
-      body: const Center(
-        child: Text(
-          'Satış ve Gelir Raporları Çok Yakında!',
-          style: TextStyle(fontSize: 18, color: Color(0xFF1B2D4F)),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('Sale Details',
+                      style: const TextStyle(
+                          fontSize: 18, fontWeight: FontWeight.w800,
+                          color: Color(0xFF1B2D4F))),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+              const Divider(),
+              const SizedBox(height: 8),
+              // Header row
+              Row(
+                children: const [
+                  Expanded(flex: 4, child: Text('Product Name',
+                      style: TextStyle(fontWeight: FontWeight.bold,
+                          color: Color(0xFF1B2D4F), fontSize: 12))),
+                  Expanded(flex: 2, child: Text('Qty',
+                      style: TextStyle(fontWeight: FontWeight.bold,
+                          color: Color(0xFF1B2D4F), fontSize: 12))),
+                  Expanded(flex: 2, child: Text('Price',
+                      style: TextStyle(fontWeight: FontWeight.bold,
+                          color: Color(0xFF1B2D4F), fontSize: 12))),
+                  Expanded(flex: 2, child: Text('Amount',
+                      style: TextStyle(fontWeight: FontWeight.bold,
+                          color: Color(0xFF1B2D4F), fontSize: 12))),
+                ],
+              ),
+              const SizedBox(height: 8),
+              ...items.map((item) => Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Row(
+                  children: [
+                    Expanded(flex: 4, child: Text(
+                        item['product_Name'] ?? '',
+                        style: const TextStyle(fontSize: 12, color: Color(0xFF1B2D4F)))),
+                    Expanded(flex: 2, child: Text(
+                        '${item['quantity']}',
+                        style: const TextStyle(fontSize: 12))),
+                    Expanded(flex: 2, child: Text(
+                        '${item['price']}€',
+                        style: const TextStyle(fontSize: 12))),
+                    Expanded(flex: 2, child: Text(
+                        '${item['amount']}€',
+                        style: const TextStyle(fontSize: 12,
+                            fontWeight: FontWeight.bold))),
+                  ],
+                ),
+              )),
+              const Divider(),
+              Align(
+                alignment: Alignment.centerRight,
+                child: Text(
+                  'Total: ${invoice['total_Amount']}€',
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 16, color: Color(0xFF1B2D4F)),
+                ),
+              ),
+            ],
+          ),
         ),
+      ),
+    );
+  }
+
+  // -------------------------------------------------------------
+  // Generate & Save PDF
+  // -------------------------------------------------------------
+  Future<void> _generatePdf(dynamic invoice) async {
+    final token = await _getToken();
+    final invoiceId = invoice['invoice_ID'];
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator(color: Color(0xFF1B2D4F))),
+    );
+
+    try {
+      // Get invoice details first
+      final detailsResponse = await http.get(
+        Uri.parse('${ApiConfig.baseUrl}/invoice/details/$invoiceId'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+
+      if (!mounted) return;
+
+      if (detailsResponse.statusCode != 200) {
+        Navigator.pop(context);
+        return;
+      }
+
+      final items = jsonDecode(detailsResponse.body) as List;
+
+      // Build PDF request
+      final pdfResponse = await http.post(
+        Uri.parse('${ApiConfig.baseUrl}/invoice/generate'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          'From': 'STOX Business',
+          'To': invoice['customerEmail'] ?? invoice['customerName'] ?? '',
+          'Number': invoiceId,
+          'Items': items.map((item) => {
+            'Name': item['product_Name'],
+            'Quantity': item['quantity'],
+            'Unit_Cost': item['price'],
+          }).toList(),
+        }),
+      );
+
+      if (!mounted) return;
+      Navigator.pop(context);
+
+      if (pdfResponse.statusCode == 200) {
+        // Save PDF to device
+        final dir = await getApplicationDocumentsDirectory();
+        final file = File('${dir.path}/invoice_$invoiceId.pdf');
+        await file.writeAsBytes(pdfResponse.bodyBytes);
+
+        // Open the PDF
+        await OpenFile.open(file.path);
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('PDF saved to ${file.path}'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  // -------------------------------------------------------------
+  // Send Email
+  // -------------------------------------------------------------
+  Future<void> _sendEmail(dynamic invoice) async {
+    final token = await _getToken();
+    final invoiceId = invoice['invoice_ID'];
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator(color: Color(0xFF1B2D4F))),
+    );
+
+    try {
+      final detailsResponse = await http.get(
+        Uri.parse('${ApiConfig.baseUrl}/invoice/details/$invoiceId'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+
+      if (!mounted) return;
+      if (detailsResponse.statusCode != 200) {
+        Navigator.pop(context);
+        return;
+      }
+
+      final items = jsonDecode(detailsResponse.body) as List;
+
+      final emailResponse = await http.post(
+        Uri.parse('${ApiConfig.baseUrl}/invoice/email'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          'From': 'STOX Business',
+          'To': invoice['customerEmail'] ?? '',
+          'Number': invoiceId,
+          'Items': items.map((item) => {
+            'Name': item['product_Name'],
+            'Quantity': item['quantity'],
+            'Unit_Cost': item['price'],
+          }).toList(),
+        }),
+      );
+
+      if (!mounted) return;
+      Navigator.pop(context);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(emailResponse.statusCode == 200
+              ? 'Invoice emailed successfully!'
+              : 'Failed to send email.'),
+          backgroundColor: emailResponse.statusCode == 200
+              ? Colors.green
+              : Colors.red,
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  // -------------------------------------------------------------
+  // Delete Invoice
+  // -------------------------------------------------------------
+  void _confirmDelete(dynamic invoice) {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('DELETE SALES',
+            style: TextStyle(color: Color(0xFF1B2D4F),
+                fontWeight: FontWeight.bold, fontSize: 16)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 60, height: 60,
+              decoration: BoxDecoration(
+                color: Colors.red.withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.warning_amber_rounded,
+                  color: Colors.red, size: 36),
+            ),
+            const SizedBox(height: 12),
+            const Text('Are you sure you want to delete this sales ?',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Color(0xFF6B7280), fontSize: 14)),
+          ],
+        ),
+        actionsAlignment: MainAxisAlignment.center,
+        actions: [
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () {
+              Navigator.pop(context);
+              _deleteInvoice(invoice['invoice_ID']);
+            },
+            child: const Text('Yes, I\'m sure',
+                style: TextStyle(color: Colors.white)),
+          ),
+          OutlinedButton(
+            style: OutlinedButton.styleFrom(
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () => Navigator.pop(context),
+            child: const Text('No, cancel',
+                style: TextStyle(color: Color(0xFF1B2D4F))),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _deleteInvoice(int invoiceId) async {
+    try {
+      final token = await _getToken();
+      final response = await http.delete(
+        Uri.parse('${ApiConfig.baseUrl}/invoice/$invoiceId'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      if (response.statusCode == 200) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Invoice deleted.'),
+              backgroundColor: Colors.green),
+        );
+        _fetchInvoices();
+      }
+    } catch (_) {}
+  }
+
+  // -------------------------------------------------------------
+  // Add Sale Dialog
+  // -------------------------------------------------------------
+  void _showAddSaleDialog() {
+    int? _selectedCustomerId;
+    List<Map<String, dynamic>> _items = [
+      {'productId': null, 'quantity': 1, 'price': 0.0}
+    ];
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          double total = _items.fold(0.0, (sum, item) {
+            final qty = item['quantity'] as int;
+            final price = (item['price'] as num).toDouble();
+            return sum + (qty * price);
+          });
+
+          return Dialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            backgroundColor: Colors.white,
+            insetPadding: const EdgeInsets.all(16),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Add New Invoice',
+                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800,
+                          color: Color(0xFF1B2D4F))),
+                  const SizedBox(height: 16),
+
+                  // Customer dropdown
+                  const Text('Customer',
+                      style: TextStyle(fontWeight: FontWeight.w600,
+                          color: Color(0xFF1B2D4F), fontSize: 13)),
+                  const SizedBox(height: 6),
+                  Container(
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.grey.shade300),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<int>(
+                        isExpanded: true,
+                        hint: const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 12),
+                          child: Text('Select a customer (Dropdown input here)',
+                              style: TextStyle(color: Colors.grey, fontSize: 13)),
+                        ),
+                        value: _selectedCustomerId,
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        items: _customers.map<DropdownMenuItem<int>>((c) {
+                          return DropdownMenuItem<int>(
+                            value: c['customer_ID'] ?? c['Customer_ID'],
+                            child: Text(c['full_Name'] ?? c['Full_Name'] ?? ''),
+                          );
+                        }).toList(),
+                        onChanged: (val) =>
+                            setDialogState(() => _selectedCustomerId = val),
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  // Items header
+                  Row(
+                    children: const [
+                      Expanded(flex: 4, child: Text('Customer',
+                          style: TextStyle(fontWeight: FontWeight.bold,
+                              fontSize: 11, color: Color(0xFF1B2D4F)))),
+                      SizedBox(width: 6),
+                      Expanded(flex: 2, child: Text('Quantity',
+                          style: TextStyle(fontWeight: FontWeight.bold,
+                              fontSize: 11, color: Color(0xFF1B2D4F)))),
+                      SizedBox(width: 6),
+                      Expanded(flex: 2, child: Text('Price',
+                          style: TextStyle(fontWeight: FontWeight.bold,
+                              fontSize: 11, color: Color(0xFF1B2D4F)))),
+                      SizedBox(width: 6),
+                      Expanded(flex: 2, child: Text('Amount',
+                          style: TextStyle(fontWeight: FontWeight.bold,
+                              fontSize: 11, color: Color(0xFF1B2D4F)))),
+                      SizedBox(width: 24),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+
+                  // Item rows
+                  ..._items.asMap().entries.map((entry) {
+                    final i = entry.key;
+                    final item = entry.value;
+                    final amount = (item['quantity'] as int) *
+                        (item['price'] as num).toDouble();
+
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Row(
+                        children: [
+                          // Product dropdown
+                          Expanded(
+                            flex: 4,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                border: Border.all(color: Colors.grey.shade300),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: DropdownButtonHideUnderline(
+                                child: DropdownButton<int>(
+                                  isExpanded: true,
+                                  hint: const Padding(
+                                    padding: EdgeInsets.symmetric(horizontal: 6),
+                                    child: Text('Product',
+                                        style: TextStyle(fontSize: 11,
+                                            color: Colors.grey)),
+                                  ),
+                                  value: item['productId'],
+                                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                                  items: _products.map<DropdownMenuItem<int>>((p) {
+                                    return DropdownMenuItem<int>(
+                                      value: p['product_ID'] ?? p['Product_ID'],
+                                      child: Text(
+                                        p['product_Name'] ?? p['Product_Name'] ?? '',
+                                        style: const TextStyle(fontSize: 12),
+                                      ),
+                                    );
+                                  }).toList(),
+                                  onChanged: (val) {
+                                    setDialogState(() {
+                                      item['productId'] = val;
+                                      // Auto-fill price from product
+                                      final product = _products.firstWhere(
+                                        (p) => (p['product_ID'] ?? p['Product_ID']) == val,
+                                        orElse: () => {},
+                                      );
+                                      if (product.isNotEmpty) {
+                                        item['price'] = (product['price'] ?? 0).toDouble();
+                                      }
+                                    });
+                                  },
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+
+                          // Quantity
+                          Expanded(
+                            flex: 2,
+                            child: TextField(
+                              keyboardType: TextInputType.number,
+                              controller: TextEditingController(
+                                  text: '${item['quantity']}')
+                                ..selection = TextSelection.collapsed(
+                                    offset: '${item['quantity']}'.length),
+                              style: const TextStyle(fontSize: 12),
+                              decoration: InputDecoration(
+                                contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 8),
+                                border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                    borderSide: BorderSide(
+                                        color: Colors.grey.shade300)),
+                                enabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                    borderSide: BorderSide(
+                                        color: Colors.grey.shade300)),
+                              ),
+                              onChanged: (val) {
+                                setDialogState(() {
+                                  item['quantity'] = int.tryParse(val) ?? 1;
+                                });
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+
+                          // Price
+                          Expanded(
+                            flex: 2,
+                            child: TextField(
+                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                              controller: TextEditingController(
+                                  text: '${item['price']}')
+                                ..selection = TextSelection.collapsed(
+                                    offset: '${item['price']}'.length),
+                              style: const TextStyle(fontSize: 12),
+                              decoration: InputDecoration(
+                                contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 8),
+                                border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                    borderSide: BorderSide(
+                                        color: Colors.grey.shade300)),
+                                enabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                    borderSide: BorderSide(
+                                        color: Colors.grey.shade300)),
+                              ),
+                              onChanged: (val) {
+                                setDialogState(() {
+                                  item['price'] = double.tryParse(val) ?? 0.0;
+                                });
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+
+                          // Amount (read-only)
+                          Expanded(
+                            flex: 2,
+                            child: Text(
+                              '${amount.toStringAsFixed(2)}€',
+                              style: const TextStyle(
+                                  fontSize: 12, fontWeight: FontWeight.bold,
+                                  color: Color(0xFF1B2D4F)),
+                            ),
+                          ),
+
+                          // Remove row button
+                          if (_items.length > 1)
+                            GestureDetector(
+                              onTap: () => setDialogState(() => _items.removeAt(i)),
+                              child: const Icon(Icons.close,
+                                  color: Colors.red, size: 20),
+                            )
+                          else
+                            const SizedBox(width: 20),
+                        ],
+                      ),
+                    );
+                  }),
+
+                  // Add Item button
+                  GestureDetector(
+                    onTap: () => setDialogState(() {
+                      _items.add({'productId': null, 'quantity': 1, 'price': 0.0});
+                    }),
+                    child: const Text('+ Add Item',
+                        style: TextStyle(
+                            color: Color(0xFF1B2D4F),
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                            decoration: TextDecoration.underline)),
+                  ),
+
+                  const SizedBox(height: 16),
+                  const Divider(),
+
+                  // Total
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Total:',
+                          style: TextStyle(fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF1B2D4F))),
+                      Text('${total.toStringAsFixed(2)}€',
+                          style: const TextStyle(fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF1B2D4F))),
+                    ],
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  // Back & Add buttons
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12)),
+                            side: const BorderSide(color: Color(0xFF1B2D4F)),
+                          ),
+                          onPressed: () => Navigator.pop(context),
+                          child: const Text('Back',
+                              style: TextStyle(color: Color(0xFF1B2D4F),
+                                  fontWeight: FontWeight.w600)),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12)),
+                          ),
+                          onPressed: () async {
+                            if (_selectedCustomerId == null) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                    content: Text('Please select a customer.')),
+                              );
+                              return;
+                            }
+                            if (_items.any((i) => i['productId'] == null)) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                    content: Text('Please select all products.')),
+                              );
+                              return;
+                            }
+                            Navigator.pop(context);
+                            await _createInvoice(_selectedCustomerId!, _items, total);
+                          },
+                          child: const Text('Add',
+                              style: TextStyle(color: Colors.white,
+                                  fontWeight: FontWeight.w600)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _createInvoice(
+      int customerId, List<Map<String, dynamic>> items, double total) async {
+    try {
+      final token = await _getToken();
+      final response = await http.post(
+        Uri.parse('${ApiConfig.baseUrl}/invoice'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          'Customer_ID': customerId,
+          'Total_Amount': total,
+          'Items': items.map((item) => {
+            'Product_ID': item['productId'],
+            'Quantity': item['quantity'],
+            'Price': item['price'],
+          }).toList(),
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Invoice created successfully!'),
+              backgroundColor: Colors.green),
+        );
+        _fetchInvoices();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed: ${response.body}'),
+              backgroundColor: Colors.red),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  // -------------------------------------------------------------
+  // Navigation
+  // -------------------------------------------------------------
+  void _handleNavTap(int index) {
+    if (index == 2) return;
+    if (index == 0) {
+      Navigator.popUntil(context, (route) => route.isFirst);
+      return;
+    }
+    if (index == 1) {
+      Navigator.pushReplacement(context,
+          MaterialPageRoute(builder: (_) => ProductsPage(role: widget.role)));
+      return;
+    }
+    if (index == 3) _showMoreDrawer();
+  }
+
+  Future<void> _onCameraPressed() async {
+    final barcode = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(builder: (_) => const ScannerScreen()),
+    );
+    if (barcode == null || !mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Scanned: $barcode')),
+    );
+  }
+
+  void _showMoreDrawer() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (_) => isAdmin ? _adminMoreSheet() : _userMoreSheet(),
+    );
+  }
+
+  Widget _userMoreSheet() {
+    return Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _sheetHandle(),
+          const SizedBox(height: 24),
+          const Text('User',
+              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700,
+                  color: Color(0xFF1B2D4F))),
+          const SizedBox(height: 20),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _moreItem(Icons.people_alt_outlined, 'Customers', () {
+                Navigator.pop(context);
+                Navigator.pushReplacement(context,
+                    MaterialPageRoute(builder: (_) => CustomersPage(role: widget.role)));
+              }),
+              _moreItem(Icons.add_box_outlined, 'Purchase', () {
+                Navigator.pop(context);
+                Navigator.pushReplacement(context,
+                    MaterialPageRoute(builder: (_) => const PurchasePage()));
+              }),
+              _moreItem(Icons.trending_up_rounded, 'Incomes', () {
+                Navigator.pop(context);
+                Navigator.pushReplacement(context,
+                    MaterialPageRoute(builder: (_) => const IncomesPage()));
+              }),
+            ],
+          ),
+          const SizedBox(height: 20),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _moreItem(Icons.mail_outline_rounded, 'Contact Us', () {
+                Navigator.pop(context);
+                Navigator.pushReplacement(context,
+                    MaterialPageRoute(builder: (_) => const ContactPage()));
+              }),
+              _moreItem(Icons.settings_outlined, 'Settings', () {
+                Navigator.pop(context);
+                Navigator.pushReplacement(context,
+                    MaterialPageRoute(builder: (_) => const SettingsPage()));
+              }),
+              _moreItem(Icons.logout_rounded, 'Logout', _logout),
+            ],
+          ),
+          const SizedBox(height: 16),
+        ],
+      ),
+    );
+  }
+
+  Widget _adminMoreSheet() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _sheetHandle(),
+          const SizedBox(height: 16),
+          const Text('Admin',
+              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700,
+                  color: Color(0xFF1B2D4F))),
+          const SizedBox(height: 16),
+          Flexible(
+            child: GridView.count(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              crossAxisCount: 3,
+              crossAxisSpacing: 12,
+              mainAxisSpacing: 16,
+              childAspectRatio: 0.95,
+              children: [
+                _moreItem(Icons.admin_panel_settings_outlined, 'Admin Panel', () {
+                  Navigator.pop(context);
+                  Navigator.pushReplacement(context,
+                      MaterialPageRoute(builder: (_) => const AdminPanelPage()));
+                }),
+                _moreItem(Icons.people_alt_outlined, 'Customers', () {
+                  Navigator.pop(context);
+                  Navigator.pushReplacement(context,
+                      MaterialPageRoute(builder: (_) => CustomersPage(role: widget.role)));
+                }),
+                _moreItem(Icons.supervised_user_circle_outlined, 'Users', () {
+                  Navigator.pop(context);
+                  Navigator.pushReplacement(context,
+                      MaterialPageRoute(builder: (_) => const UsersPage()));
+                }),
+                _moreItem(Icons.chat_bubble_outline_rounded, 'Messages', () {
+                  Navigator.pop(context);
+                  Navigator.pushReplacement(context,
+                      MaterialPageRoute(builder: (_) => const MessagesPage()));
+                }),
+                _moreItem(Icons.add_box_outlined, 'Purchase', () {
+                  Navigator.pop(context);
+                  Navigator.pushReplacement(context,
+                      MaterialPageRoute(builder: (_) => const PurchasePage()));
+                }),
+                _moreItem(Icons.trending_up_rounded, 'Incomes', () {
+                  Navigator.pop(context);
+                  Navigator.pushReplacement(context,
+                      MaterialPageRoute(builder: (_) => const IncomesPage()));
+                }),
+                _moreItem(Icons.mail_outline_rounded, 'Contact Us', () {
+                  Navigator.pop(context);
+                  Navigator.pushReplacement(context,
+                      MaterialPageRoute(builder: (_) => const ContactPage()));
+                }),
+                _moreItem(Icons.settings_outlined, 'Settings', () {
+                  Navigator.pop(context);
+                  Navigator.pushReplacement(context,
+                      MaterialPageRoute(builder: (_) => const SettingsPage()));
+                }),
+                _moreItem(Icons.logout_rounded, 'Logout', _logout),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _sheetHandle() => Container(
+        width: 40, height: 4,
+        decoration: BoxDecoration(
+            color: Colors.grey[300], borderRadius: BorderRadius.circular(2)));
+
+  Widget _moreItem(IconData icon, String label, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        children: [
+          Container(
+            width: 60, height: 60,
+            decoration: BoxDecoration(
+                color: const Color(0xFFEEF2F7),
+                borderRadius: BorderRadius.circular(14)),
+            child: Icon(icon, color: const Color(0xFF1B2D4F), size: 26),
+          ),
+          const SizedBox(height: 8),
+          Text(label,
+              style: const TextStyle(fontSize: 12, color: Color(0xFF1B2D4F),
+                  fontWeight: FontWeight.w500)),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _logout() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('token');
+    await prefs.remove('refreshToken');
+    await prefs.remove('role');
+    if (mounted) {
+      Navigator.pushAndRemoveUntil(context,
+          MaterialPageRoute(builder: (_) => const LoginScreen()), (_) => false);
+    }
+  }
+
+  // -------------------------------------------------------------
+  // Build
+  // -------------------------------------------------------------
+  @override
+  Widget build(BuildContext context) {
+    final int dynamicCount = _invoices.length > _visibleCount
+        ? _visibleCount + 1
+        : _invoices.length;
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF8F9FB),
+      body: SafeArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('STOX',
+                      style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800,
+                          color: Color(0xFF1B2D4F), letterSpacing: 1)),
+                  const SizedBox(height: 4),
+                  Container(height: 3, width: double.infinity,
+                      color: const Color(0xFF1B2D4F)),
+                ],
+              ),
+            ),
+
+            // Search & Sort bar
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      height: 40,
+                      decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(8),
+                          boxShadow: [
+                            BoxShadow(color: Colors.black.withOpacity(0.06),
+                                blurRadius: 6, offset: const Offset(0, 3))
+                          ]),
+                      child: const Row(
+                        children: [
+                          SizedBox(width: 12),
+                          Icon(Icons.search, size: 18, color: Color(0xFF1B2D4F)),
+                          SizedBox(width: 6),
+                          Text('search',
+                              style: TextStyle(color: Color(0xFF9BA5B4),
+                                  fontSize: 14)),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Container(
+                    height: 40,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(8),
+                        boxShadow: [
+                          BoxShadow(color: Colors.black.withOpacity(0.06),
+                              blurRadius: 6, offset: const Offset(0, 3))
+                        ]),
+                    child: const Row(
+                      children: [
+                        Icon(Icons.sort, size: 18, color: Color(0xFF1B2D4F)),
+                        SizedBox(width: 6),
+                        Text('sort by',
+                            style: TextStyle(color: Color(0xFF1B2D4F),
+                                fontWeight: FontWeight.bold, fontSize: 14)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // Add Sale button
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF1B2D4F),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8)),
+                  ),
+                  onPressed: _showAddSaleDialog,
+                  child: const Text('Add Sale',
+                      style: TextStyle(color: Colors.white, fontSize: 18,
+                          fontWeight: FontWeight.bold)),
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 16),
+
+            // Invoice list
+            Expanded(
+              child: _isLoading
+                  ? const Center(child: CircularProgressIndicator(
+                      color: Color(0xFF1B2D4F)))
+                  : _invoices.isEmpty
+                      ? const Center(
+                          child: Text('No sales found.',
+                              style: TextStyle(color: Color(0xFF1B2D4F))))
+                      : ListView.builder(
+                          padding: const EdgeInsets.symmetric(horizontal: 24),
+                          itemCount: dynamicCount,
+                          itemBuilder: (context, index) {
+                            if (index == _visibleCount) {
+                              return Padding(
+                                padding: const EdgeInsets.only(
+                                    bottom: 24, top: 8),
+                                child: TextButton(
+                                  style: TextButton.styleFrom(
+                                    foregroundColor: const Color(0xFF1B2D4F),
+                                    backgroundColor: const Color(0xFFEEF2F7),
+                                    padding: const EdgeInsets.symmetric(
+                                        vertical: 12),
+                                    shape: RoundedRectangleBorder(
+                                        borderRadius:
+                                            BorderRadius.circular(8)),
+                                  ),
+                                  onPressed: () => setState(
+                                      () => _visibleCount += _loadIncrement),
+                                  child: const Text('Load More...',
+                                      style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 15)),
+                                ),
+                              );
+                            }
+                            return _buildInvoiceCard(_invoices[index], index);
+                          },
+                        ),
+            ),
+          ],
+        ),
+      ),
+      bottomNavigationBar: isAdmin
+          ? AdminNavBar(currentIndex: 2, onTap: _handleNavTap,
+              onCameraPressed: _onCameraPressed)
+          : UserNavBar(currentIndex: 2, onTap: _handleNavTap,
+              onCameraPressed: _onCameraPressed),
+    );
+  }
+
+  Widget _buildInvoiceCard(dynamic invoice, int index) {
+    final String customerName = invoice['customerName'] ?? '';
+    final String dateStr = invoice['invoice_Date'] ?? '';
+    final num total = invoice['total_Amount'] ?? 0;
+    final int invoiceId = invoice['invoice_ID'] ?? 0;
+
+    DateTime? date;
+    try {
+      date = DateTime.parse(dateStr);
+    } catch (_) {}
+
+    final String formattedDate = date != null
+        ? '${date.day.toString().padLeft(2, '0')}.${date.month.toString().padLeft(2, '0')}.${date.year}  ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}'
+        : dateStr;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(
+            color: const Color(0xFF1B2D4F).withOpacity(0.3), width: 1),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Invoice #$invoiceId',
+                style: const TextStyle(fontSize: 11,
+                    color: Color(0xFF9BA5B4))),
+            const SizedBox(height: 4),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(customerName,
+                    style: const TextStyle(fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF1B2D4F))),
+                Text('${total.toStringAsFixed(2)}€',
+                    style: const TextStyle(fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF1B2D4F))),
+              ],
+            ),
+            const SizedBox(height: 2),
+            Text(formattedDate,
+                style: const TextStyle(fontSize: 11,
+                    color: Color(0xFF9BA5B4))),
+            const SizedBox(height: 10),
+
+            // Action buttons
+            Row(
+              children: [
+                _actionBtn('View', const Color(0xFF1B2D4F),
+                    () => _viewInvoiceDetails(invoice)),
+                const SizedBox(width: 6),
+                _actionBtn('Delete', const Color(0xFFD30000),
+                    () => _confirmDelete(invoice)),
+                const SizedBox(width: 6),
+                _actionBtn('Email', const Color(0xFF0066CC),
+                    () => _sendEmail(invoice)),
+                const SizedBox(width: 6),
+                _actionBtn('PDF', const Color(0xFF00AA13),
+                    () => _generatePdf(invoice)),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _actionBtn(String label, Color color, VoidCallback onPressed) {
+    return SizedBox(
+      height: 28,
+      child: ElevatedButton(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: color,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+        ),
+        onPressed: onPressed,
+        child: Text(label,
+            style: const TextStyle(color: Colors.white, fontSize: 12,
+                fontWeight: FontWeight.bold)),
       ),
     );
   }

@@ -378,7 +378,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     if (index == 2) {
       Navigator.push(context,
-          MaterialPageRoute(builder: (context) => const SalesPage()));
+                  MaterialPageRoute(builder: (context) => SalesPage(role: widget.role)));
       return;
     }
     if (index == 3) {

@@ -103,7 +103,7 @@ class _ContactPageState extends State<ContactPage> {
     if (index == 2) {
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => const SalesPage()),
+        MaterialPageRoute(builder: (_) => SalesPage(role: _role)),
       );
       return;
     }
