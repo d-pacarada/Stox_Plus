@@ -65,7 +65,6 @@ class _SalesPageState extends State<SalesPage> {
       );
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body) as List;
-        // Sort by date descending
         data.sort((a, b) {
           final dateA = DateTime.tryParse(a['invoice_Date'] ?? '') ?? DateTime(0);
           final dateB = DateTime.tryParse(b['invoice_Date'] ?? '') ?? DateTime(0);
@@ -112,7 +111,8 @@ class _SalesPageState extends State<SalesPage> {
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (_) => const Center(child: CircularProgressIndicator(color: Color(0xFF1B2D4F))),
+      builder: (_) => const Center(
+          child: CircularProgressIndicator(color: Color(0xFF1B2D4F))),
     );
 
     try {
@@ -148,9 +148,8 @@ class _SalesPageState extends State<SalesPage> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text('Sale Details',
-                      style: const TextStyle(
-                          fontSize: 18, fontWeight: FontWeight.w800,
+                  const Text('Sale Details',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800,
                           color: Color(0xFF1B2D4F))),
                   IconButton(
                     icon: const Icon(Icons.close),
@@ -160,7 +159,6 @@ class _SalesPageState extends State<SalesPage> {
               ),
               const Divider(),
               const SizedBox(height: 8),
-              // Header row
               Row(
                 children: const [
                   Expanded(flex: 4, child: Text('Product Name',
@@ -179,25 +177,31 @@ class _SalesPageState extends State<SalesPage> {
               ),
               const SizedBox(height: 8),
               ...items.map((item) => Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Row(
-                  children: [
-                    Expanded(flex: 4, child: Text(
-                        item['product_Name'] ?? '',
-                        style: const TextStyle(fontSize: 12, color: Color(0xFF1B2D4F)))),
-                    Expanded(flex: 2, child: Text(
-                        '${item['quantity']}',
-                        style: const TextStyle(fontSize: 12))),
-                    Expanded(flex: 2, child: Text(
-                        '${item['price']}€',
-                        style: const TextStyle(fontSize: 12))),
-                    Expanded(flex: 2, child: Text(
-                        '${item['amount']}€',
-                        style: const TextStyle(fontSize: 12,
-                            fontWeight: FontWeight.bold))),
-                  ],
-                ),
-              )),
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Row(
+                      children: [
+                        Expanded(
+                            flex: 4,
+                            child: Text(item['product_Name'] ?? '',
+                                style: const TextStyle(
+                                    fontSize: 12, color: Color(0xFF1B2D4F)))),
+                        Expanded(
+                            flex: 2,
+                            child: Text('${item['quantity']}',
+                                style: const TextStyle(fontSize: 12))),
+                        Expanded(
+                            flex: 2,
+                            child: Text('${item['price']}€',
+                                style: const TextStyle(fontSize: 12))),
+                        Expanded(
+                            flex: 2,
+                            child: Text('${item['amount']}€',
+                                style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold))),
+                      ],
+                    ),
+                  )),
               const Divider(),
               Align(
                 alignment: Alignment.centerRight,
@@ -205,7 +209,8 @@ class _SalesPageState extends State<SalesPage> {
                   'Total: ${invoice['total_Amount']}€',
                   style: const TextStyle(
                       fontWeight: FontWeight.w800,
-                      fontSize: 16, color: Color(0xFF1B2D4F)),
+                      fontSize: 16,
+                      color: Color(0xFF1B2D4F)),
                 ),
               ),
             ],
@@ -225,18 +230,17 @@ class _SalesPageState extends State<SalesPage> {
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (_) => const Center(child: CircularProgressIndicator(color: Color(0xFF1B2D4F))),
+      builder: (_) => const Center(
+          child: CircularProgressIndicator(color: Color(0xFF1B2D4F))),
     );
 
     try {
-      // Get invoice details first
       final detailsResponse = await http.get(
         Uri.parse('${ApiConfig.baseUrl}/invoice/details/$invoiceId'),
         headers: {'Authorization': 'Bearer $token'},
       );
 
       if (!mounted) return;
-
       if (detailsResponse.statusCode != 200) {
         Navigator.pop(context);
         return;
@@ -244,7 +248,6 @@ class _SalesPageState extends State<SalesPage> {
 
       final items = jsonDecode(detailsResponse.body) as List;
 
-      // Build PDF request
       final pdfResponse = await http.post(
         Uri.parse('${ApiConfig.baseUrl}/invoice/generate'),
         headers: {
@@ -255,10 +258,19 @@ class _SalesPageState extends State<SalesPage> {
           'From': 'STOX Business',
           'To': invoice['customerEmail'] ?? invoice['customerName'] ?? '',
           'Number': invoiceId,
-          'Items': items.map((item) => {
-            'Name': item['product_Name'],
-            'Quantity': item['quantity'],
-            'Unit_Cost': item['price'],
+          'Items': items.map((item) {
+            final product = _products.firstWhere(
+              (p) => (p['product_Name'] ?? p['Product_Name']) == item['product_Name'],
+              orElse: () => {},
+            );
+            return {
+              'Name': item['product_Name'],
+              'Quantity': item['quantity'],
+              'Unit_Cost': item['price'],
+              'Barcode': product.isNotEmpty
+                  ? (product['barcode'] ?? product['Barcode'] ?? item['product_Name'])
+                  : item['product_Name'],
+            };
           }).toList(),
         }),
       );
@@ -267,18 +279,15 @@ class _SalesPageState extends State<SalesPage> {
       Navigator.pop(context);
 
       if (pdfResponse.statusCode == 200) {
-        // Save PDF to device
         final dir = await getApplicationDocumentsDirectory();
         final file = File('${dir.path}/invoice_$invoiceId.pdf');
         await file.writeAsBytes(pdfResponse.bodyBytes);
-
-        // Open the PDF
         await OpenFile.open(file.path);
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('PDF saved to ${file.path}'),
+            const SnackBar(
+              content: Text('PDF saved and opened!'),
               backgroundColor: Colors.green,
             ),
           );
@@ -304,7 +313,8 @@ class _SalesPageState extends State<SalesPage> {
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (_) => const Center(child: CircularProgressIndicator(color: Color(0xFF1B2D4F))),
+      builder: (_) => const Center(
+          child: CircularProgressIndicator(color: Color(0xFF1B2D4F))),
     );
 
     try {
@@ -331,10 +341,19 @@ class _SalesPageState extends State<SalesPage> {
           'From': 'STOX Business',
           'To': invoice['customerEmail'] ?? '',
           'Number': invoiceId,
-          'Items': items.map((item) => {
-            'Name': item['product_Name'],
-            'Quantity': item['quantity'],
-            'Unit_Cost': item['price'],
+          'Items': items.map((item) {
+            final product = _products.firstWhere(
+              (p) => (p['product_Name'] ?? p['Product_Name']) == item['product_Name'],
+              orElse: () => {},
+            );
+            return {
+              'Name': item['product_Name'],
+              'Quantity': item['quantity'],
+              'Unit_Cost': item['price'],
+              'Barcode': product.isNotEmpty
+                  ? (product['barcode'] ?? product['Barcode'] ?? item['product_Name'])
+                  : item['product_Name'],
+            };
           }).toList(),
         }),
       );
@@ -347,9 +366,8 @@ class _SalesPageState extends State<SalesPage> {
           content: Text(emailResponse.statusCode == 200
               ? 'Invoice emailed successfully!'
               : 'Failed to send email.'),
-          backgroundColor: emailResponse.statusCode == 200
-              ? Colors.green
-              : Colors.red,
+          backgroundColor:
+              emailResponse.statusCode == 200 ? Colors.green : Colors.red,
         ),
       );
     } catch (e) {
@@ -371,13 +389,16 @@ class _SalesPageState extends State<SalesPage> {
       builder: (_) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Text('DELETE SALES',
-            style: TextStyle(color: Color(0xFF1B2D4F),
-                fontWeight: FontWeight.bold, fontSize: 16)),
+            style: TextStyle(
+                color: Color(0xFF1B2D4F),
+                fontWeight: FontWeight.bold,
+                fontSize: 16)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              width: 60, height: 60,
+              width: 60,
+              height: 60,
               decoration: BoxDecoration(
                 color: Colors.red.withOpacity(0.1),
                 shape: BoxShape.circle,
@@ -429,7 +450,8 @@ class _SalesPageState extends State<SalesPage> {
       );
       if (response.statusCode == 200) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Invoice deleted.'),
+          const SnackBar(
+              content: Text('Invoice deleted.'),
               backgroundColor: Colors.green),
         );
         _fetchInvoices();
@@ -438,12 +460,20 @@ class _SalesPageState extends State<SalesPage> {
   }
 
   // -------------------------------------------------------------
-  // Add Sale Dialog
+  // Add Sale Dialog — Fixed controllers + Price locked from DB
   // -------------------------------------------------------------
   void _showAddSaleDialog() {
     int? _selectedCustomerId;
+
+    // ✅ Each item has its own persistent TextEditingController
     List<Map<String, dynamic>> _items = [
-      {'productId': null, 'quantity': 1, 'price': 0.0}
+      {
+        'productId': null,
+        'quantity': 1,
+        'price': 0.0,
+        'qtyController': TextEditingController(text: '1'),
+        'priceDisplay': '0.00€', // ✅ price shown as read-only text
+      }
     ];
 
     showDialog(
@@ -458,7 +488,8 @@ class _SalesPageState extends State<SalesPage> {
           });
 
           return Dialog(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
             backgroundColor: Colors.white,
             insetPadding: const EdgeInsets.all(16),
             child: SingleChildScrollView(
@@ -468,14 +499,18 @@ class _SalesPageState extends State<SalesPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text('Add New Invoice',
-                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800,
+                      style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w800,
                           color: Color(0xFF1B2D4F))),
                   const SizedBox(height: 16),
 
                   // Customer dropdown
                   const Text('Customer',
-                      style: TextStyle(fontWeight: FontWeight.w600,
-                          color: Color(0xFF1B2D4F), fontSize: 13)),
+                      style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF1B2D4F),
+                          fontSize: 13)),
                   const SizedBox(height: 6),
                   Container(
                     decoration: BoxDecoration(
@@ -487,15 +522,18 @@ class _SalesPageState extends State<SalesPage> {
                         isExpanded: true,
                         hint: const Padding(
                           padding: EdgeInsets.symmetric(horizontal: 12),
-                          child: Text('Select a customer (Dropdown input here)',
-                              style: TextStyle(color: Colors.grey, fontSize: 13)),
+                          child: Text('Select a customer',
+                              style: TextStyle(
+                                  color: Colors.grey, fontSize: 13)),
                         ),
                         value: _selectedCustomerId,
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        padding:
+                            const EdgeInsets.symmetric(horizontal: 12),
                         items: _customers.map<DropdownMenuItem<int>>((c) {
                           return DropdownMenuItem<int>(
                             value: c['customer_ID'] ?? c['Customer_ID'],
-                            child: Text(c['full_Name'] ?? c['Full_Name'] ?? ''),
+                            child: Text(
+                                c['full_Name'] ?? c['Full_Name'] ?? ''),
                           );
                         }).toList(),
                         onChanged: (val) =>
@@ -509,21 +547,37 @@ class _SalesPageState extends State<SalesPage> {
                   // Items header
                   Row(
                     children: const [
-                      Expanded(flex: 4, child: Text('Customer',
-                          style: TextStyle(fontWeight: FontWeight.bold,
-                              fontSize: 11, color: Color(0xFF1B2D4F)))),
+                      Expanded(
+                          flex: 4,
+                          child: Text('Product',
+                              style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 11,
+                                  color: Color(0xFF1B2D4F)))),
                       SizedBox(width: 6),
-                      Expanded(flex: 2, child: Text('Quantity',
-                          style: TextStyle(fontWeight: FontWeight.bold,
-                              fontSize: 11, color: Color(0xFF1B2D4F)))),
+                      Expanded(
+                          flex: 2,
+                          child: Text('Qty',
+                              style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 11,
+                                  color: Color(0xFF1B2D4F)))),
                       SizedBox(width: 6),
-                      Expanded(flex: 2, child: Text('Price',
-                          style: TextStyle(fontWeight: FontWeight.bold,
-                              fontSize: 11, color: Color(0xFF1B2D4F)))),
+                      Expanded(
+                          flex: 2,
+                          child: Text('Price',
+                              style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 11,
+                                  color: Color(0xFF1B2D4F)))),
                       SizedBox(width: 6),
-                      Expanded(flex: 2, child: Text('Amount',
-                          style: TextStyle(fontWeight: FontWeight.bold,
-                              fontSize: 11, color: Color(0xFF1B2D4F)))),
+                      Expanded(
+                          flex: 2,
+                          child: Text('Amount',
+                              style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 11,
+                                  color: Color(0xFF1B2D4F)))),
                       SizedBox(width: 24),
                     ],
                   ),
@@ -540,44 +594,62 @@ class _SalesPageState extends State<SalesPage> {
                       padding: const EdgeInsets.only(bottom: 8),
                       child: Row(
                         children: [
-                          // Product dropdown
+                          // ✅ Product dropdown
                           Expanded(
                             flex: 4,
                             child: Container(
                               decoration: BoxDecoration(
-                                border: Border.all(color: Colors.grey.shade300),
+                                border: Border.all(
+                                    color: Colors.grey.shade300),
                                 borderRadius: BorderRadius.circular(8),
                               ),
                               child: DropdownButtonHideUnderline(
                                 child: DropdownButton<int>(
                                   isExpanded: true,
                                   hint: const Padding(
-                                    padding: EdgeInsets.symmetric(horizontal: 6),
+                                    padding: EdgeInsets.symmetric(
+                                        horizontal: 6),
                                     child: Text('Product',
-                                        style: TextStyle(fontSize: 11,
+                                        style: TextStyle(
+                                            fontSize: 11,
                                             color: Colors.grey)),
                                   ),
                                   value: item['productId'],
-                                  padding: const EdgeInsets.symmetric(horizontal: 6),
-                                  items: _products.map<DropdownMenuItem<int>>((p) {
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 6),
+                                  items: _products
+                                      .map<DropdownMenuItem<int>>((p) {
                                     return DropdownMenuItem<int>(
-                                      value: p['product_ID'] ?? p['Product_ID'],
+                                      value: p['product_ID'] ??
+                                          p['Product_ID'],
                                       child: Text(
-                                        p['product_Name'] ?? p['Product_Name'] ?? '',
-                                        style: const TextStyle(fontSize: 12),
+                                        p['product_Name'] ??
+                                            p['Product_Name'] ??
+                                            '',
+                                        style: const TextStyle(
+                                            fontSize: 12),
                                       ),
                                     );
                                   }).toList(),
                                   onChanged: (val) {
                                     setDialogState(() {
                                       item['productId'] = val;
-                                      // Auto-fill price from product
-                                      final product = _products.firstWhere(
-                                        (p) => (p['product_ID'] ?? p['Product_ID']) == val,
+                                      // ✅ Auto-fill price from DB — locked, not editable
+                                      final product =
+                                          _products.firstWhere(
+                                        (p) =>
+                                            (p['product_ID'] ??
+                                                p['Product_ID']) ==
+                                            val,
                                         orElse: () => {},
                                       );
                                       if (product.isNotEmpty) {
-                                        item['price'] = (product['price'] ?? 0).toDouble();
+                                        final price = (product['price'] ??
+                                                0)
+                                            .toDouble();
+                                        item['price'] = price;
+                                        item['priceDisplay'] =
+                                            '${price.toStringAsFixed(2)}€';
                                       }
                                     });
                                   },
@@ -587,75 +659,75 @@ class _SalesPageState extends State<SalesPage> {
                           ),
                           const SizedBox(width: 6),
 
-                          // Quantity
+                          // ✅ Quantity — editable with persistent controller
                           Expanded(
                             flex: 2,
                             child: TextField(
+                              controller: item['qtyController']
+                                  as TextEditingController,
                               keyboardType: TextInputType.number,
-                              controller: TextEditingController(
-                                  text: '${item['quantity']}')
-                                ..selection = TextSelection.collapsed(
-                                    offset: '${item['quantity']}'.length),
                               style: const TextStyle(fontSize: 12),
                               decoration: InputDecoration(
-                                contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 8, vertical: 8),
+                                contentPadding:
+                                    const EdgeInsets.symmetric(
+                                        horizontal: 8, vertical: 8),
                                 border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(8),
+                                    borderRadius:
+                                        BorderRadius.circular(8),
                                     borderSide: BorderSide(
                                         color: Colors.grey.shade300)),
                                 enabledBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(8),
+                                    borderRadius:
+                                        BorderRadius.circular(8),
                                     borderSide: BorderSide(
                                         color: Colors.grey.shade300)),
+                                focusedBorder: OutlineInputBorder(
+                                    borderRadius:
+                                        BorderRadius.circular(8),
+                                    borderSide: const BorderSide(
+                                        color: Color(0xFF1B2D4F))),
                               ),
                               onChanged: (val) {
                                 setDialogState(() {
-                                  item['quantity'] = int.tryParse(val) ?? 1;
+                                  item['quantity'] =
+                                      int.tryParse(val) ?? 1;
                                 });
                               },
                             ),
                           ),
                           const SizedBox(width: 6),
 
-                          // Price
+                          // ✅ Price — READ ONLY, fetched from DB
                           Expanded(
                             flex: 2,
-                            child: TextField(
-                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                              controller: TextEditingController(
-                                  text: '${item['price']}')
-                                ..selection = TextSelection.collapsed(
-                                    offset: '${item['price']}'.length),
-                              style: const TextStyle(fontSize: 12),
-                              decoration: InputDecoration(
-                                contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 8, vertical: 8),
-                                border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                    borderSide: BorderSide(
-                                        color: Colors.grey.shade300)),
-                                enabledBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                    borderSide: BorderSide(
-                                        color: Colors.grey.shade300)),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 10),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFEEF2F7),
+                                border: Border.all(
+                                    color: Colors.grey.shade200),
+                                borderRadius: BorderRadius.circular(8),
                               ),
-                              onChanged: (val) {
-                                setDialogState(() {
-                                  item['price'] = double.tryParse(val) ?? 0.0;
-                                });
-                              },
+                              child: Text(
+                                item['priceDisplay'] ?? '0.00€',
+                                style: const TextStyle(
+                                    fontSize: 12,
+                                    color: Color(0xFF1B2D4F),
+                                    fontWeight: FontWeight.w600),
+                              ),
                             ),
                           ),
                           const SizedBox(width: 6),
 
-                          // Amount (read-only)
+                          // Amount (calculated)
                           Expanded(
                             flex: 2,
                             child: Text(
                               '${amount.toStringAsFixed(2)}€',
                               style: const TextStyle(
-                                  fontSize: 12, fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
                                   color: Color(0xFF1B2D4F)),
                             ),
                           ),
@@ -663,7 +735,13 @@ class _SalesPageState extends State<SalesPage> {
                           // Remove row button
                           if (_items.length > 1)
                             GestureDetector(
-                              onTap: () => setDialogState(() => _items.removeAt(i)),
+                              onTap: () {
+                                // ✅ Dispose controller before removing
+                                (item['qtyController']
+                                        as TextEditingController)
+                                    .dispose();
+                                setDialogState(() => _items.removeAt(i));
+                              },
                               child: const Icon(Icons.close,
                                   color: Colors.red, size: 20),
                             )
@@ -674,10 +752,16 @@ class _SalesPageState extends State<SalesPage> {
                     );
                   }),
 
-                  // Add Item button
+                  // ✅ Add Item button
                   GestureDetector(
                     onTap: () => setDialogState(() {
-                      _items.add({'productId': null, 'quantity': 1, 'price': 0.0});
+                      _items.add({
+                        'productId': null,
+                        'quantity': 1,
+                        'price': 0.0,
+                        'qtyController': TextEditingController(text: '1'),
+                        'priceDisplay': '0.00€',
+                      });
                     }),
                     child: const Text('+ Add Item',
                         style: TextStyle(
@@ -695,11 +779,13 @@ class _SalesPageState extends State<SalesPage> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       const Text('Total:',
-                          style: TextStyle(fontSize: 18,
+                          style: TextStyle(
+                              fontSize: 18,
                               fontWeight: FontWeight.w800,
                               color: Color(0xFF1B2D4F))),
                       Text('${total.toStringAsFixed(2)}€',
-                          style: const TextStyle(fontSize: 18,
+                          style: const TextStyle(
+                              fontSize: 18,
                               fontWeight: FontWeight.w800,
                               color: Color(0xFF1B2D4F))),
                     ],
@@ -713,14 +799,25 @@ class _SalesPageState extends State<SalesPage> {
                       Expanded(
                         child: OutlinedButton(
                           style: OutlinedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            padding: const EdgeInsets.symmetric(
+                                vertical: 14),
                             shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(12)),
-                            side: const BorderSide(color: Color(0xFF1B2D4F)),
+                            side: const BorderSide(
+                                color: Color(0xFF1B2D4F)),
                           ),
-                          onPressed: () => Navigator.pop(context),
+                          onPressed: () {
+                            // Dispose all controllers on cancel
+                            for (final item in _items) {
+                              (item['qtyController']
+                                      as TextEditingController)
+                                  .dispose();
+                            }
+                            Navigator.pop(context);
+                          },
                           child: const Text('Back',
-                              style: TextStyle(color: Color(0xFF1B2D4F),
+                              style: TextStyle(
+                                  color: Color(0xFF1B2D4F),
                                   fontWeight: FontWeight.w600)),
                         ),
                       ),
@@ -729,30 +826,44 @@ class _SalesPageState extends State<SalesPage> {
                         child: ElevatedButton(
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.green,
-                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            padding: const EdgeInsets.symmetric(
+                                vertical: 14),
                             shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(12)),
                           ),
                           onPressed: () async {
                             if (_selectedCustomerId == null) {
                               ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                    content: Text('Please select a customer.')),
+                                const SnackBar(content: Text('Please select a customer.')),
                               );
                               return;
                             }
                             if (_items.any((i) => i['productId'] == null)) {
                               ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                    content: Text('Please select all products.')),
+                                const SnackBar(content: Text('Please select all products.')),
                               );
                               return;
+                            }
+                            // ✅ ADD THIS CHECK
+                            if (_items.any((i) => (i['quantity'] as int) <= 0)) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Quantity must be at least 1 for all items.'),
+                                  backgroundColor: Colors.red,
+                                ),
+                              );
+                              return;
+                            }
+                            // Dispose controllers before closing
+                            for (final item in _items) {
+                              (item['qtyController'] as TextEditingController).dispose();
                             }
                             Navigator.pop(context);
                             await _createInvoice(_selectedCustomerId!, _items, total);
                           },
                           child: const Text('Add',
-                              style: TextStyle(color: Colors.white,
+                              style: TextStyle(
+                                  color: Colors.white,
                                   fontWeight: FontWeight.w600)),
                         ),
                       ),
@@ -767,8 +878,8 @@ class _SalesPageState extends State<SalesPage> {
     );
   }
 
-  Future<void> _createInvoice(
-      int customerId, List<Map<String, dynamic>> items, double total) async {
+  Future<void> _createInvoice(int customerId,
+      List<Map<String, dynamic>> items, double total) async {
     try {
       final token = await _getToken();
       final response = await http.post(
@@ -780,23 +891,27 @@ class _SalesPageState extends State<SalesPage> {
         body: jsonEncode({
           'Customer_ID': customerId,
           'Total_Amount': total,
-          'Items': items.map((item) => {
-            'Product_ID': item['productId'],
-            'Quantity': item['quantity'],
-            'Price': item['price'],
-          }).toList(),
+          'Items': items
+              .map((item) => {
+                    'Product_ID': item['productId'],
+                    'Quantity': item['quantity'],
+                    'Price': item['price'],
+                  })
+              .toList(),
         }),
       );
 
       if (response.statusCode == 200) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Invoice created successfully!'),
+          const SnackBar(
+              content: Text('Invoice created successfully!'),
               backgroundColor: Colors.green),
         );
         _fetchInvoices();
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed: ${response.body}'),
+          SnackBar(
+              content: Text('Failed: ${response.body}'),
               backgroundColor: Colors.red),
         );
       }
@@ -818,7 +933,8 @@ class _SalesPageState extends State<SalesPage> {
     }
     if (index == 1) {
       Navigator.pushReplacement(context,
-          MaterialPageRoute(builder: (_) => ProductsPage(role: widget.role)));
+          MaterialPageRoute(
+              builder: (_) => ProductsPage(role: widget.role)));
       return;
     }
     if (index == 3) _showMoreDrawer();
@@ -854,7 +970,9 @@ class _SalesPageState extends State<SalesPage> {
           _sheetHandle(),
           const SizedBox(height: 24),
           const Text('User',
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700,
+              style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w700,
                   color: Color(0xFF1B2D4F))),
           const SizedBox(height: 20),
           Row(
@@ -862,8 +980,11 @@ class _SalesPageState extends State<SalesPage> {
             children: [
               _moreItem(Icons.people_alt_outlined, 'Customers', () {
                 Navigator.pop(context);
-                Navigator.pushReplacement(context,
-                    MaterialPageRoute(builder: (_) => CustomersPage(role: widget.role)));
+                Navigator.pushReplacement(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) =>
+                            CustomersPage(role: widget.role)));
               }),
               _moreItem(Icons.add_box_outlined, 'Purchase', () {
                 Navigator.pop(context);
@@ -909,7 +1030,9 @@ class _SalesPageState extends State<SalesPage> {
           _sheetHandle(),
           const SizedBox(height: 16),
           const Text('Admin',
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700,
+              style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w700,
                   color: Color(0xFF1B2D4F))),
           const SizedBox(height: 16),
           Flexible(
@@ -921,25 +1044,34 @@ class _SalesPageState extends State<SalesPage> {
               mainAxisSpacing: 16,
               childAspectRatio: 0.95,
               children: [
-                _moreItem(Icons.admin_panel_settings_outlined, 'Admin Panel', () {
+                _moreItem(Icons.admin_panel_settings_outlined, 'Admin Panel',
+                    () {
                   Navigator.pop(context);
-                  Navigator.pushReplacement(context,
-                      MaterialPageRoute(builder: (_) => const AdminPanelPage()));
+                  Navigator.pushReplacement(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => const AdminPanelPage()));
                 }),
                 _moreItem(Icons.people_alt_outlined, 'Customers', () {
                   Navigator.pop(context);
-                  Navigator.pushReplacement(context,
-                      MaterialPageRoute(builder: (_) => CustomersPage(role: widget.role)));
+                  Navigator.pushReplacement(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) =>
+                              CustomersPage(role: widget.role)));
                 }),
-                _moreItem(Icons.supervised_user_circle_outlined, 'Users', () {
+                _moreItem(Icons.supervised_user_circle_outlined, 'Users',
+                    () {
                   Navigator.pop(context);
                   Navigator.pushReplacement(context,
                       MaterialPageRoute(builder: (_) => const UsersPage()));
                 }),
                 _moreItem(Icons.chat_bubble_outline_rounded, 'Messages', () {
                   Navigator.pop(context);
-                  Navigator.pushReplacement(context,
-                      MaterialPageRoute(builder: (_) => const MessagesPage()));
+                  Navigator.pushReplacement(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => const MessagesPage()));
                 }),
                 _moreItem(Icons.add_box_outlined, 'Purchase', () {
                   Navigator.pop(context);
@@ -971,9 +1103,10 @@ class _SalesPageState extends State<SalesPage> {
   }
 
   Widget _sheetHandle() => Container(
-        width: 40, height: 4,
-        decoration: BoxDecoration(
-            color: Colors.grey[300], borderRadius: BorderRadius.circular(2)));
+      width: 40,
+      height: 4,
+      decoration: BoxDecoration(
+          color: Colors.grey[300], borderRadius: BorderRadius.circular(2)));
 
   Widget _moreItem(IconData icon, String label, VoidCallback onTap) {
     return GestureDetector(
@@ -981,7 +1114,8 @@ class _SalesPageState extends State<SalesPage> {
       child: Column(
         children: [
           Container(
-            width: 60, height: 60,
+            width: 60,
+            height: 60,
             decoration: BoxDecoration(
                 color: const Color(0xFFEEF2F7),
                 borderRadius: BorderRadius.circular(14)),
@@ -989,7 +1123,9 @@ class _SalesPageState extends State<SalesPage> {
           ),
           const SizedBox(height: 8),
           Text(label,
-              style: const TextStyle(fontSize: 12, color: Color(0xFF1B2D4F),
+              style: const TextStyle(
+                  fontSize: 12,
+                  color: Color(0xFF1B2D4F),
                   fontWeight: FontWeight.w500)),
         ],
       ),
@@ -1002,8 +1138,10 @@ class _SalesPageState extends State<SalesPage> {
     await prefs.remove('refreshToken');
     await prefs.remove('role');
     if (mounted) {
-      Navigator.pushAndRemoveUntil(context,
-          MaterialPageRoute(builder: (_) => const LoginScreen()), (_) => false);
+      Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (_) => const LoginScreen()),
+          (_) => false);
     }
   }
 
@@ -1022,25 +1160,28 @@ class _SalesPageState extends State<SalesPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header
             Padding(
               padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text('STOX',
-                      style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800,
-                          color: Color(0xFF1B2D4F), letterSpacing: 1)),
+                      style: TextStyle(
+                          fontSize: 28,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF1B2D4F),
+                          letterSpacing: 1)),
                   const SizedBox(height: 4),
-                  Container(height: 3, width: double.infinity,
+                  Container(
+                      height: 3,
+                      width: double.infinity,
                       color: const Color(0xFF1B2D4F)),
                 ],
               ),
             ),
-
-            // Search & Sort bar
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
               child: Row(
                 children: [
                   Expanded(
@@ -1050,17 +1191,20 @@ class _SalesPageState extends State<SalesPage> {
                           color: Colors.white,
                           borderRadius: BorderRadius.circular(8),
                           boxShadow: [
-                            BoxShadow(color: Colors.black.withOpacity(0.06),
-                                blurRadius: 6, offset: const Offset(0, 3))
+                            BoxShadow(
+                                color: Colors.black.withOpacity(0.06),
+                                blurRadius: 6,
+                                offset: const Offset(0, 3))
                           ]),
                       child: const Row(
                         children: [
                           SizedBox(width: 12),
-                          Icon(Icons.search, size: 18, color: Color(0xFF1B2D4F)),
+                          Icon(Icons.search,
+                              size: 18, color: Color(0xFF1B2D4F)),
                           SizedBox(width: 6),
                           Text('search',
-                              style: TextStyle(color: Color(0xFF9BA5B4),
-                                  fontSize: 14)),
+                              style: TextStyle(
+                                  color: Color(0xFF9BA5B4), fontSize: 14)),
                         ],
                       ),
                     ),
@@ -1073,24 +1217,26 @@ class _SalesPageState extends State<SalesPage> {
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(8),
                         boxShadow: [
-                          BoxShadow(color: Colors.black.withOpacity(0.06),
-                              blurRadius: 6, offset: const Offset(0, 3))
+                          BoxShadow(
+                              color: Colors.black.withOpacity(0.06),
+                              blurRadius: 6,
+                              offset: const Offset(0, 3))
                         ]),
                     child: const Row(
                       children: [
                         Icon(Icons.sort, size: 18, color: Color(0xFF1B2D4F)),
                         SizedBox(width: 6),
                         Text('sort by',
-                            style: TextStyle(color: Color(0xFF1B2D4F),
-                                fontWeight: FontWeight.bold, fontSize: 14)),
+                            style: TextStyle(
+                                color: Color(0xFF1B2D4F),
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14)),
                       ],
                     ),
                   ),
                 ],
               ),
             ),
-
-            // Add Sale button
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
               child: SizedBox(
@@ -1104,25 +1250,26 @@ class _SalesPageState extends State<SalesPage> {
                   ),
                   onPressed: _showAddSaleDialog,
                   child: const Text('Add Sale',
-                      style: TextStyle(color: Colors.white, fontSize: 18,
+                      style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
                           fontWeight: FontWeight.bold)),
                 ),
               ),
             ),
-
             const SizedBox(height: 16),
-
-            // Invoice list
             Expanded(
               child: _isLoading
-                  ? const Center(child: CircularProgressIndicator(
-                      color: Color(0xFF1B2D4F)))
+                  ? const Center(
+                      child: CircularProgressIndicator(
+                          color: Color(0xFF1B2D4F)))
                   : _invoices.isEmpty
                       ? const Center(
                           child: Text('No sales found.',
                               style: TextStyle(color: Color(0xFF1B2D4F))))
                       : ListView.builder(
-                          padding: const EdgeInsets.symmetric(horizontal: 24),
+                          padding:
+                              const EdgeInsets.symmetric(horizontal: 24),
                           itemCount: dynamicCount,
                           itemBuilder: (context, index) {
                             if (index == _visibleCount) {
@@ -1131,8 +1278,10 @@ class _SalesPageState extends State<SalesPage> {
                                     bottom: 24, top: 8),
                                 child: TextButton(
                                   style: TextButton.styleFrom(
-                                    foregroundColor: const Color(0xFF1B2D4F),
-                                    backgroundColor: const Color(0xFFEEF2F7),
+                                    foregroundColor:
+                                        const Color(0xFF1B2D4F),
+                                    backgroundColor:
+                                        const Color(0xFFEEF2F7),
                                     padding: const EdgeInsets.symmetric(
                                         vertical: 12),
                                     shape: RoundedRectangleBorder(
@@ -1148,7 +1297,8 @@ class _SalesPageState extends State<SalesPage> {
                                 ),
                               );
                             }
-                            return _buildInvoiceCard(_invoices[index], index);
+                            return _buildInvoiceCard(
+                                _invoices[index], index);
                           },
                         ),
             ),
@@ -1156,9 +1306,13 @@ class _SalesPageState extends State<SalesPage> {
         ),
       ),
       bottomNavigationBar: isAdmin
-          ? AdminNavBar(currentIndex: 2, onTap: _handleNavTap,
+          ? AdminNavBar(
+              currentIndex: 2,
+              onTap: _handleNavTap,
               onCameraPressed: _onCameraPressed)
-          : UserNavBar(currentIndex: 2, onTap: _handleNavTap,
+          : UserNavBar(
+              currentIndex: 2,
+              onTap: _handleNavTap,
               onCameraPressed: _onCameraPressed),
     );
   }
@@ -1192,29 +1346,29 @@ class _SalesPageState extends State<SalesPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('Invoice #$invoiceId',
-                style: const TextStyle(fontSize: 11,
-                    color: Color(0xFF9BA5B4))),
+                style: const TextStyle(
+                    fontSize: 11, color: Color(0xFF9BA5B4))),
             const SizedBox(height: 4),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(customerName,
-                    style: const TextStyle(fontSize: 18,
+                    style: const TextStyle(
+                        fontSize: 18,
                         fontWeight: FontWeight.w800,
                         color: Color(0xFF1B2D4F))),
                 Text('${total.toStringAsFixed(2)}€',
-                    style: const TextStyle(fontSize: 18,
+                    style: const TextStyle(
+                        fontSize: 18,
                         fontWeight: FontWeight.w800,
                         color: Color(0xFF1B2D4F))),
               ],
             ),
             const SizedBox(height: 2),
             Text(formattedDate,
-                style: const TextStyle(fontSize: 11,
-                    color: Color(0xFF9BA5B4))),
+                style: const TextStyle(
+                    fontSize: 11, color: Color(0xFF9BA5B4))),
             const SizedBox(height: 10),
-
-            // Action buttons
             Row(
               children: [
                 _actionBtn('View', const Color(0xFF1B2D4F),
@@ -1243,11 +1397,14 @@ class _SalesPageState extends State<SalesPage> {
         style: ElevatedButton.styleFrom(
           backgroundColor: color,
           padding: const EdgeInsets.symmetric(horizontal: 12),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
         ),
         onPressed: onPressed,
         child: Text(label,
-            style: const TextStyle(color: Colors.white, fontSize: 12,
+            style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12,
                 fontWeight: FontWeight.bold)),
       ),
     );
