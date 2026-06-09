@@ -136,7 +136,7 @@ class _AddProductPageState extends State<AddProductPage> {
       );
 
       if (response.statusCode == 200 || response.statusCode == 201) {
-        _showSnackBar('Ürün başarıyla eklendi! 🎉', isSuccess: true);
+        _showSnackBar('Product added successfully! 🎉', isSuccess: true);
         if (mounted) Navigator.pop(context, true);
       } else {
         final errorMsg =

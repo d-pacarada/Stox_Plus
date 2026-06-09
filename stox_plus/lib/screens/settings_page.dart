@@ -244,14 +244,14 @@ class _SettingsPageState extends State<SettingsPage> {
                 Navigator.pushReplacement(
                     context,
                     MaterialPageRoute(
-                        builder: (_) => const PurchasePage()));
+                        builder: (_) => PurchasePage(role: _role)));
               }),
               _moreItem(Icons.trending_up_rounded, 'Incomes', () {
                 Navigator.pop(context);
                 Navigator.pushReplacement(
                     context,
                     MaterialPageRoute(
-                        builder: (_) => const IncomesPage()));
+                        builder: (_) => IncomesPage(role: _role)));
               }),
             ],
           ),
@@ -341,14 +341,14 @@ class _SettingsPageState extends State<SettingsPage> {
                   Navigator.pushReplacement(
                       context,
                       MaterialPageRoute(
-                          builder: (_) => const PurchasePage()));
+                          builder: (_) => PurchasePage(role: _role)));
                 }),
                 _moreItem(Icons.trending_up_rounded, 'Incomes', () {
                   Navigator.pop(context);
                   Navigator.pushReplacement(
                       context,
                       MaterialPageRoute(
-                          builder: (_) => const IncomesPage()));
+                          builder: (_) => IncomesPage(role: _role)));
                 }),
                 _moreItem(Icons.mail_outline_rounded, 'Contact Us', () {
                   Navigator.pop(context);

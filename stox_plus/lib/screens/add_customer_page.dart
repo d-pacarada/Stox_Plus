@@ -60,7 +60,7 @@ class _AddCustomerPageState extends State<AddCustomerPage> {
       );
 
       if (response.statusCode == 200 || response.statusCode == 201) {
-        _showSnackBar('Müşteri başarıyla eklendi! 🎉', isSuccess: true);
+        _showSnackBar('Customer added successfully! 🎉', isSuccess: true);
         
         // Ekleme başarılı olunca bir önceki ekrana (Listeye) true dönerek geri git
         if (mounted) {

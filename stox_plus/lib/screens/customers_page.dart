@@ -764,14 +764,14 @@ class _CustomersPageState extends State<CustomersPage> {
                 Navigator.push(
                     context,
                     MaterialPageRoute(
-                        builder: (context) => const PurchasePage()));
+                        builder: (_) => PurchasePage(role: widget.role)));
               }),
               _moreItem(Icons.trending_up_rounded, 'Incomes', () {
                 Navigator.pop(context);
                 Navigator.push(
                     context,
                     MaterialPageRoute(
-                        builder: (context) => const IncomesPage()));
+                        builder: (_) => IncomesPage(role: widget.role)));
               }),
             ],
           ),
@@ -860,14 +860,14 @@ class _CustomersPageState extends State<CustomersPage> {
                   Navigator.push(
                       context,
                       MaterialPageRoute(
-                          builder: (context) => const PurchasePage()));
+                          builder: (_) => PurchasePage(role: widget.role)));
                 }),
                 _moreItem(Icons.trending_up_rounded, 'Incomes', () {
                   Navigator.pop(context);
                   Navigator.push(
                       context,
                       MaterialPageRoute(
-                          builder: (context) => const IncomesPage()));
+                          builder: (_) => IncomesPage(role: widget.role)));
                 }),
                 _moreItem(Icons.mail_outline_rounded, 'Contact Us', () {
                   Navigator.pop(context);

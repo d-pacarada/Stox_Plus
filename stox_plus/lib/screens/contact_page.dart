@@ -64,7 +64,7 @@ class _ContactPageState extends State<ContactPage> {
       );
 
       if (response.statusCode == 200) {
-        _showSnackBar('Mesajınız başarıyla gönderildi! 🎉',
+        _showSnackBar('Your message has been sent successfully! 🎉',
             isSuccess: true);
         _emailController.clear();
         _messageController.clear();
@@ -172,14 +172,14 @@ class _ContactPageState extends State<ContactPage> {
                 Navigator.pushReplacement(
                     context,
                     MaterialPageRoute(
-                        builder: (_) => const PurchasePage()));
+                        builder: (_) => PurchasePage(role: _role)));
               }),
               _moreItem(Icons.trending_up_rounded, 'Incomes', () {
                 Navigator.pop(context);
                 Navigator.pushReplacement(
                     context,
                     MaterialPageRoute(
-                        builder: (_) => const IncomesPage()));
+                        builder: (_) => IncomesPage(role: _role)));
               }),
             ],
           ),
@@ -269,14 +269,14 @@ class _ContactPageState extends State<ContactPage> {
                   Navigator.pushReplacement(
                       context,
                       MaterialPageRoute(
-                          builder: (_) => const PurchasePage()));
+                          builder: (_) => PurchasePage(role: _role)));
                 }),
                 _moreItem(Icons.trending_up_rounded, 'Incomes', () {
                   Navigator.pop(context);
                   Navigator.pushReplacement(
                       context,
                       MaterialPageRoute(
-                          builder: (_) => const IncomesPage()));
+                          builder: (_) => IncomesPage(role: _role)));
                 }),
                 _moreItem(Icons.mail_outline_rounded, 'Contact Us', () {
                   Navigator.pop(context); // zaten Contact'tayız
