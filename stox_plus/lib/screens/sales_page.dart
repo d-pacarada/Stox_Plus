@@ -122,14 +122,15 @@ class _SalesPageState extends State<SalesPage> {
       );
 
       if (!mounted) return;
-      Navigator.pop(context);
+      // ✅ Sadece loading dialog hâlâ açıksa kapat (çift pop'u önler)
+      if (Navigator.canPop(context)) Navigator.pop(context);
 
       if (response.statusCode == 200) {
         final items = jsonDecode(response.body) as List;
         _showDetailsDialog(invoice, items);
       }
     } catch (_) {
-      if (mounted) Navigator.pop(context);
+      if (mounted && Navigator.canPop(context)) Navigator.pop(context);
     }
   }
 
@@ -242,7 +243,7 @@ class _SalesPageState extends State<SalesPage> {
 
       if (!mounted) return;
       if (detailsResponse.statusCode != 200) {
-        Navigator.pop(context);
+        if (Navigator.canPop(context)) Navigator.pop(context);
         return;
       }
 
@@ -276,7 +277,7 @@ class _SalesPageState extends State<SalesPage> {
       );
 
       if (!mounted) return;
-      Navigator.pop(context);
+      if (Navigator.canPop(context)) Navigator.pop(context);
 
       if (pdfResponse.statusCode == 200) {
         final dir = await getApplicationDocumentsDirectory();
@@ -295,7 +296,7 @@ class _SalesPageState extends State<SalesPage> {
       }
     } catch (e) {
       if (mounted) {
-        Navigator.pop(context);
+        if (Navigator.canPop(context)) Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
         );
@@ -325,7 +326,7 @@ class _SalesPageState extends State<SalesPage> {
 
       if (!mounted) return;
       if (detailsResponse.statusCode != 200) {
-        Navigator.pop(context);
+        if (Navigator.canPop(context)) Navigator.pop(context);
         return;
       }
 
@@ -359,7 +360,7 @@ class _SalesPageState extends State<SalesPage> {
       );
 
       if (!mounted) return;
-      Navigator.pop(context);
+      if (Navigator.canPop(context)) Navigator.pop(context);
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -372,7 +373,7 @@ class _SalesPageState extends State<SalesPage> {
       );
     } catch (e) {
       if (mounted) {
-        Navigator.pop(context);
+        if (Navigator.canPop(context)) Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
         );
@@ -736,10 +737,14 @@ class _SalesPageState extends State<SalesPage> {
                           if (_items.length > 1)
                             GestureDetector(
                               onTap: () {
-                                // ✅ Dispose controller before removing
-                                (item['qtyController']
-                                        as TextEditingController)
-                                    .dispose();
+                                // ✅ Controller'ı dispose ETMİYORUZ.
+                                // TextField hâlâ klavye/animasyon
+                                // listener'larına bağlıyken dispose
+                                // edilince "TextEditingController was
+                                // used after being disposed" hatası
+                                // çıkıyordu. Sadece listeden çıkarmak
+                                // yeterli; dialog kapanınca controller
+                                // GC tarafından temizlenir.
                                 setDialogState(() => _items.removeAt(i));
                               },
                               child: const Icon(Icons.close,
@@ -807,12 +812,12 @@ class _SalesPageState extends State<SalesPage> {
                                 color: Color(0xFF1B2D4F)),
                           ),
                           onPressed: () {
-                            // Dispose all controllers on cancel
-                            for (final item in _items) {
-                              (item['qtyController']
-                                      as TextEditingController)
-                                  .dispose();
-                            }
+                            // ✅ Controller'ları dispose ETMİYORUZ —
+                            // aynı sebep: hâlâ animasyon/listener
+                            // bağlı TextField dispose edilmiş
+                            // controller'a erişince hata fırlatıyordu.
+                            // Dialog kapanınca controller'lar GC ile
+                            // temizlenir.
                             Navigator.pop(context);
                           },
                           child: const Text('Back',
@@ -854,12 +859,20 @@ class _SalesPageState extends State<SalesPage> {
                               );
                               return;
                             }
-                            // Dispose controllers before closing
-                            for (final item in _items) {
-                              (item['qtyController'] as TextEditingController).dispose();
-                            }
+                            // ✅ Controller'ları dispose ETMİYORUZ —
+                            // aynı sebep: hâlâ animasyon/listener
+                            // bağlı TextField dispose edilmiş
+                            // controller'a erişince hata fırlatıyordu.
+                            // Dialog kapanınca controller'lar GC ile
+                            // temizlenir.
+                            final customerId = _selectedCustomerId!;
+                            final itemsSnapshot =
+                                List<Map<String, dynamic>>.from(_items);
+                            final totalSnapshot = total;
+
                             Navigator.pop(context);
-                            await _createInvoice(_selectedCustomerId!, _items, total);
+                            await _createInvoice(
+                                customerId, itemsSnapshot, totalSnapshot);
                           },
                           child: const Text('Add',
                               style: TextStyle(
@@ -1323,6 +1336,14 @@ class _SalesPageState extends State<SalesPage> {
     final num total = invoice['total_Amount'] ?? 0;
     final int invoiceId = invoice['invoice_ID'] ?? 0;
 
+    // ✅ Kart üzerinde gösterilecek numara: gerçek invoice_ID değil,
+    // bu kullanıcının kendi listesindeki sıra numarası. Liste en
+    // yeniden en eskiye sıralı olduğu için (bkz. _fetchInvoices),
+    // en eski fatura #1 olacak şekilde sırayı ters çeviriyoruz.
+    // View/Delete/Email/PDF gibi tüm API işlemleri hâlâ gerçek
+    // invoiceId'yi kullanır — bu sadece ekrandaki yazıyı değiştirir.
+    final int displayNumber = _invoices.length - index;
+
     DateTime? date;
     try {
       date = DateTime.parse(dateStr);
@@ -1345,7 +1366,7 @@ class _SalesPageState extends State<SalesPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Invoice #$invoiceId',
+            Text('Invoice #$displayNumber',
                 style: const TextStyle(
                     fontSize: 11, color: Color(0xFF9BA5B4))),
             const SizedBox(height: 4),

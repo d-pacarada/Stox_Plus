@@ -3628,19 +3628,19 @@
     ]
   },
   "packageFolders": {
-    "C:\\Users\\donar\\.nuget\\packages\\": {}
+    "C:\\Users\\38349\\.nuget\\packages\\": {}
   },
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "C:\\Users\\donar\\OneDrive\\Desktop\\Stox_Plus\\StoxPlus.Api\\StoxPlus.Api.csproj",
+      "projectUniqueName": "C:\\Users\\38349\\Desktop\\Stox_Plus\\StoxPlus.Api\\StoxPlus.Api.csproj",
       "projectName": "StoxPlus.Api",
-      "projectPath": "C:\\Users\\donar\\OneDrive\\Desktop\\Stox_Plus\\StoxPlus.Api\\StoxPlus.Api.csproj",
-      "packagesPath": "C:\\Users\\donar\\.nuget\\packages\\",
-      "outputPath": "C:\\Users\\donar\\OneDrive\\Desktop\\Stox_Plus\\StoxPlus.Api\\obj\\",
+      "projectPath": "C:\\Users\\38349\\Desktop\\Stox_Plus\\StoxPlus.Api\\StoxPlus.Api.csproj",
+      "packagesPath": "C:\\Users\\38349\\.nuget\\packages\\",
+      "outputPath": "C:\\Users\\38349\\Desktop\\Stox_Plus\\StoxPlus.Api\\obj\\",
       "projectStyle": "PackageReference",
       "configFilePaths": [
-        "C:\\Users\\donar\\AppData\\Roaming\\NuGet\\NuGet.Config"
+        "C:\\Users\\38349\\AppData\\Roaming\\NuGet\\NuGet.Config"
       ],
       "originalTargetFrameworks": [
         "net8.0"
@@ -3663,7 +3663,8 @@
         "enableAudit": "true",
         "auditLevel": "low",
         "auditMode": "direct"
-      }
+      },
+      "SdkAnalysisLevel": "10.0.100"
     },
     "frameworks": {
       "net8.0": {
@@ -3725,6 +3726,24 @@
         ],
         "assetTargetFallback": true,
         "warn": true,
+        "downloadDependencies": [
+          {
+            "name": "Microsoft.AspNetCore.App.Ref",
+            "version": "[8.0.21, 8.0.21]"
+          },
+          {
+            "name": "Microsoft.NETCore.App.Host.win-x64",
+            "version": "[8.0.21, 8.0.21]"
+          },
+          {
+            "name": "Microsoft.NETCore.App.Ref",
+            "version": "[8.0.21, 8.0.21]"
+          },
+          {
+            "name": "Microsoft.WindowsDesktop.App.Ref",
+            "version": "[8.0.21, 8.0.21]"
+          }
+        ],
         "frameworkReferences": {
           "Microsoft.AspNetCore.App": {
             "privateAssets": "none"
@@ -3733,7 +3752,7 @@
             "privateAssets": "all"
           }
         },
-        "runtimeIdentifierGraphPath": "c:\\program files\\dotnet\\sdk\\8.0.408/PortableRuntimeIdentifierGraph.json"
+        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.100-rc.2.25502.107/PortableRuntimeIdentifierGraph.json"
       }
     }
   },

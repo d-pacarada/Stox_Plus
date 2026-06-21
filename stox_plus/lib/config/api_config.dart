@@ -1,7 +1,7 @@
 // lib/config/api_config.dart
 class ApiConfig {
   // ✅ SET THIS: true = physical phone, false = emulator
-  static const bool usePhysicalDevice = true;
+  static const bool usePhysicalDevice = false;
 
   // ✅ SET THIS: your PC's WiFi IP (run 'ipconfig' in terminal)
   static const String pcIp = '192.168.20.46'; // replace with your actual IP

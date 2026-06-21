@@ -64,6 +64,16 @@ class _PurchasePageState extends State<PurchasePage> {
       );
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body) as List;
+        // ✅ sales_page.dart ile tutarlı olacak şekilde en yeniden
+        // en eskiye sırala. Bu, kart üzerindeki sıra numarasının
+        // (en eski = #1) güvenilir çalışması için gerekli.
+        data.sort((a, b) {
+          final dateA =
+              DateTime.tryParse(a['purchase_Date'] ?? '') ?? DateTime(0);
+          final dateB =
+              DateTime.tryParse(b['purchase_Date'] ?? '') ?? DateTime(0);
+          return dateB.compareTo(dateA);
+        });
         if (mounted) setState(() => _purchases = data);
       }
     } catch (_) {}
@@ -231,7 +241,7 @@ class _PurchasePageState extends State<PurchasePage> {
       );
 
       if (!mounted) return;
-      Navigator.pop(context);
+      if (Navigator.canPop(context)) Navigator.pop(context);
 
       if (pdfResponse.statusCode == 200) {
         final dir = await getApplicationDocumentsDirectory();
@@ -250,7 +260,7 @@ class _PurchasePageState extends State<PurchasePage> {
       }
     } catch (e) {
       if (mounted) {
-        Navigator.pop(context);
+        if (Navigator.canPop(context)) Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
               content: Text('Error: $e'), backgroundColor: Colors.red),
@@ -307,7 +317,7 @@ class _PurchasePageState extends State<PurchasePage> {
       );
 
       if (!mounted) return;
-      Navigator.pop(context);
+      if (Navigator.canPop(context)) Navigator.pop(context);
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -320,7 +330,7 @@ class _PurchasePageState extends State<PurchasePage> {
       );
     } catch (e) {
       if (mounted) {
-        Navigator.pop(context);
+        if (Navigator.canPop(context)) Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
               content: Text('Error: $e'), backgroundColor: Colors.red),
@@ -691,9 +701,15 @@ class _PurchasePageState extends State<PurchasePage> {
                           if (_items.length > 1)
                             GestureDetector(
                               onTap: () {
-                                (item['qtyController']
-                                        as TextEditingController)
-                                    .dispose();
+                                // ✅ Controller'ı dispose ETMİYORUZ —
+                                // dispose edilmiş bir controller'a
+                                // bağlı TextField hâlâ build/animasyon
+                                // sürecindeyken erişilince
+                                // "TextEditingController was used
+                                // after being disposed" hatası
+                                // fırlatılıyordu. Sadece listeden
+                                // çıkarmak yeterli; dialog kapanınca
+                                // controller GC ile temizlenir.
                                 setDialogState(
                                     () => _items.removeAt(i));
                               },
@@ -764,12 +780,12 @@ class _PurchasePageState extends State<PurchasePage> {
                                 color: Color(0xFF1B2D4F)),
                           ),
                           onPressed: () {
-                            _supplierController.dispose();
-                            for (final item in _items) {
-                              (item['qtyController']
-                                      as TextEditingController)
-                                  .dispose();
-                            }
+                            // ✅ Controller'ları dispose ETMİYORUZ —
+                            // aynı sebep: hâlâ build/animasyon
+                            // sürecindeki TextField dispose edilmiş
+                            // controller'a erişince hata
+                            // fırlatıyordu. Dialog kapanınca
+                            // controller'lar GC ile temizlenir.
                             Navigator.pop(context);
                           },
                           child: const Text('Back',
@@ -823,17 +839,19 @@ class _PurchasePageState extends State<PurchasePage> {
                               );
                               return;
                             }
+                            // ✅ Controller'ları dispose ETMİYORUZ —
+                            // aynı sebep (bkz. Back butonu).
                             final supplierName =
                                 _supplierController.text.trim();
-                            _supplierController.dispose();
-                            for (final item in _items) {
-                              (item['qtyController']
-                                      as TextEditingController)
-                                  .dispose();
-                            }
+                            final itemsSnapshot =
+                                List<Map<String, dynamic>>.from(
+                                    _items);
+                            final totalSnapshot = total;
+
                             Navigator.pop(context);
                             await _createPurchase(
-                                supplierName, _items, total);
+                                supplierName, itemsSnapshot,
+                                totalSnapshot);
                           },
                           child: const Text('Add',
                               style: TextStyle(
@@ -1340,6 +1358,14 @@ class _PurchasePageState extends State<PurchasePage> {
     final num total = purchase['total_Amount'] ?? 0;
     final int purchaseId = purchase['purchase_ID'] ?? 0;
 
+    // ✅ Kart üzerinde gösterilecek numara: gerçek purchase_ID değil,
+    // bu kullanıcının kendi listesindeki sıra numarası. Liste en
+    // yeniden en eskiye sıralı (bkz. _fetchPurchases), bu yüzden en
+    // eski alış #1 olacak şekilde sırayı ters çeviriyoruz. View/
+    // Delete/Email/PDF işlemleri hâlâ gerçek purchaseId'yi kullanır —
+    // bu sadece ekrandaki yazıyı değiştirir.
+    final int displayNumber = _purchases.length - index;
+
     DateTime? date;
     try {
       date = DateTime.parse(dateStr);
@@ -1363,7 +1389,7 @@ class _PurchasePageState extends State<PurchasePage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Purchase #$purchaseId',
+            Text('Purchase #$displayNumber',
                 style: const TextStyle(
                     fontSize: 11, color: Color(0xFF9BA5B4))),
             const SizedBox(height: 4),
